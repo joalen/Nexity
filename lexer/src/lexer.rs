@@ -2,7 +2,7 @@ use std::str::Chars;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
-pub enum ReservedToken { 
+pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
     Of, Module, Newtype, Then, Type, Where,
 }
@@ -14,6 +14,9 @@ pub enum Token {
     Identifier(String),
     Number(f64),
     Char(char),
+    Equals,
+    Arrow,
+    Pipe,
 }
 
 pub struct Lexer<'a> {
@@ -39,7 +42,11 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         loop {
-            let c = *self.current_char.lock().unwrap();
+            let c = {
+                let current_char = self.current_char.lock().unwrap();
+                *current_char
+            };
+
             if let Some(c) = c {
                 if c.is_whitespace() {
                     self.next_char();
@@ -55,13 +62,21 @@ impl<'a> Lexer<'a> {
     pub fn get_token(&mut self) -> Token {
         self.skip_whitespace();
 
-        let current_char = *self.current_char.lock().unwrap();
+        let current_char = {
+            let current_char = self.current_char.lock().unwrap();
+            *current_char
+        };
+
         match current_char {
             Some(c) if c.is_alphabetic() => self.lex_identifier(),
             Some(c) if c.is_digit(10) || c == '.' => self.lex_number(),
             Some('#') => {
                 loop {
-                    let c = *self.current_char.lock().unwrap();
+                    let c = {
+                        let current_char = self.current_char.lock().unwrap();
+                        *current_char
+                    };
+
                     if let Some(c) = c {
                         if c == '\n' || c == '\r' {
                             break;
@@ -85,14 +100,20 @@ impl<'a> Lexer<'a> {
     fn lex_identifier(&mut self) -> Token {
         let mut identifier = String::new();
 
-        if let Some(c) = *self.current_char.lock().unwrap() {
+        if let Some(c) = {
+            let current_char = self.current_char.lock().unwrap();
+            *current_char
+        } {
             identifier.push(c);
             self.next_char();
         }
 
-        // Continue while characters are alphanumeric
         loop {
-            let c = *self.current_char.lock().unwrap();
+            let c = {
+                let current_char = self.current_char.lock().unwrap();
+                *current_char
+            };
+
             if let Some(c) = c {
                 if c.is_alphanumeric() {
                     identifier.push(c);
@@ -119,7 +140,11 @@ impl<'a> Lexer<'a> {
         let mut num_str = String::new();
 
         loop {
-            let c = *self.current_char.lock().unwrap();
+            let c = {
+                let current_char = self.current_char.lock().unwrap();
+                *current_char
+            };
+
             if let Some(c) = c {
                 if c.is_digit(10) || c == '.' {
                     num_str.push(c);

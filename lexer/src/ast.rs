@@ -1,6 +1,17 @@
-use crate::interpreter::{Value, Env};
+use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+// Value Enum for holding values
+#[derive(Debug, PartialEq, Clone)] // Derive Clone for simple Value variants
+pub enum Value {
+    Number(f64),
+    Bool(bool),
+    Function(Vec<String>, Box<Expr>, Env),  // Stores parameters, function body, and closure
+}
+
+// Type alias for the environment
+pub type Env = HashMap<String, Value>;
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Type {
     Int,
     Float,
@@ -11,9 +22,8 @@ pub enum Type {
     TypeVar(String),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Expr 
-{
+#[derive(Debug, PartialEq, Clone)] 
+pub enum Expr {
     Number(f64),
     Identifier(String),
     BinaryOp(Box<Expr>, BinaryOp, Box<Expr>),
@@ -22,6 +32,7 @@ pub enum Expr
     Lambda(Vec<String>, Box<Expr>),
     Application(Box<Expr>, Box<Expr>),
     Match(Box<Expr>, Vec<(Pattern, Option<Expr>, Expr)>),
+    Pipe(Box<Expr>, Box<Expr>),
     Let(Vec<(String, Expr)>, Box<Expr>),
     Where(Box<Expr>, Vec<(String, Expr)>),
     Bool(bool),
@@ -30,14 +41,14 @@ pub enum Expr
     Or(Box<Expr>, Box<Expr>),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum BinaryOp 
-{
+// Binary operations supported in the language
+#[derive(Debug, PartialEq, Clone)] // Derive Clone for simple BinaryOp variants
+pub enum BinaryOp {
     Add,
     Subtract,
     Multiply,
     Divide,
-    And, 
+    And,
     Or,
     Equal,
     NotEqual,
@@ -46,9 +57,9 @@ pub enum BinaryOp
     LessEqual,
     GreaterEqual,
 }
-#[derive(Debug, PartialEq)]
-pub enum Pattern 
-{
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Pattern {
     Literal(f64),
     Variable(String),
     Constructor(String, Vec<Pattern>),
@@ -77,7 +88,6 @@ impl Expr {
                 env.insert(name.clone(), v.clone());
                 true
             }
-            // Implement handling for Constructor patterns and wildcard patterns
             (_, Pattern::Wildcard) => true,
             _ => false,
         }
@@ -125,7 +135,28 @@ impl Expr {
                 self.apply_function(func, arg)
             }
 
-            Expr::Match(expr, cases) => {
+            Expr::Pipe(func_expr, arg_expr) => {
+                let func = func_expr.evaluate(env)?;
+                let arg = arg_expr.evaluate(env)?;
+            
+                if let Value::Function(params, body, closure_env) = func {
+                    let mut local_env = closure_env.clone();
+
+                    if params.len() == 1 {
+                        local_env.insert(params[0].clone(), arg);
+                    } else {
+                        return Err("Function expects one parameter".into());
+                    }
+            
+                    let result = body.evaluate(&mut local_env)?;
+                    Ok(result)
+                } else {
+                    Err("Pipe expects a function on the left-hand side".into())
+                }
+            }
+
+            // future release
+            /*Expr::Match(expr, cases) => {
                 let value = expr.evaluate(env)?;
                 for (pattern, guard, result) in cases {
                     if self.matches_pattern(&value, pattern, env) {
@@ -138,9 +169,10 @@ impl Expr {
                     }
                 }
                 Err("No matching pattern found".into())
-            }
+            }*/
 
-            // Handle other cases here, like lists, tuples, type annotations, etc.
+
+
             _ => Err("Unsupported expression".into()),
         }
     }
@@ -161,6 +193,7 @@ impl Expr {
         }
     }
 
+    // Check if a value is truthy
     fn is_truthy(&self, value: &Value) -> bool {
         match value {
             Value::Bool(b) => *b,
@@ -171,8 +204,7 @@ impl Expr {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Stmt 
-{
+pub enum Stmt {
     Let(String, Expr),
     Expr(Expr),
 }

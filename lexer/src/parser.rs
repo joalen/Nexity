@@ -1,3 +1,7 @@
+use crate::lexer::{Lexer, Token};
+use crate::ast::{Expr, BinaryOp};
+
+
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 enum Precedence 
 {
@@ -36,7 +40,8 @@ impl<'a> Parser<'a>
 
     fn next_token(&mut self)
     {
-        self.current_token = self.lexer.get_token();
+        let token = self.lexer.get_token();
+        self.current_token = token;
     }
 
     pub fn parse_expr(&mut self, precedence: Precedence) -> Option<Expr> 
@@ -83,12 +88,14 @@ impl<'a> Parser<'a>
 
     fn parse_prefix(&mut self) -> Option<Expr> 
     {
-        match &self.current_token 
+        let token = std::mem::replace(&mut self.current_token, Token::Eof);
+
+        match token 
         {
             Token::Number(n) => 
             {
                 self.next_token();
-                Some(Expr::Number(*n))
+                Some(Expr::Number(n))
             }
             Token::Identifier(id) => 
             {
@@ -152,32 +159,17 @@ impl<'a> Parser<'a>
         Some(Expr::Application(Box::new(func), Box::new(arg)))
     }
 
-    fn parse_case(&mut self) -> Option<Expr> 
-    {
-        self.next_token(); 
-    
-        let expr = self.parse_expr(Precedence::Lowest)?;
-    
-        if let Token::Of = self.current_token 
-        {
+    fn parse_pipe(&mut self) -> Option<Expr> {
+        if let Token::Pipe = self.current_token {
             self.next_token();
-        }
-    
-        let mut cases = Vec::new();
-        while let Token::Pipe = self.current_token 
-        {
-            self.next_token();
-            
-            let pattern = self.parse_pattern()?;
-            if let Token::Arrow = self.current_token 
-            {
-                self.next_token(); 
-                let result = self.parse_expr(Precedence::Lowest)?;
-                cases.push((pattern, result));
+            let func = self.parse_expr(Precedence::Lowest)?;
+            if let Token::Pipe = self.current_token {
+                self.next_token();
+                let arg = self.parse_expr(Precedence::Lowest)?;
+                return Some(Expr::Pipe(Box::new(func), Box::new(arg)));
             }
         }
-    
-        Some(Expr::Match(Box::new(expr), cases))
+        None
     }
 
     fn current_token_precedence(&self) -> Option<Precedence> 
