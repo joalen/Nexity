@@ -25,6 +25,7 @@ impl LLVMGenerator {
     pub fn generate_expr(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Number(n) => format!("{}", n),
+
             Expr::BinaryOp(lhs, op, rhs) => {
                 let lhs_code = self.generate_expr(lhs);
                 let rhs_code = self.generate_expr(rhs);
@@ -32,20 +33,21 @@ impl LLVMGenerator {
                     BinaryOp::Add => "add",
                     BinaryOp::Subtract => "sub",
                     BinaryOp::Multiply => "mul",
-                    BinaryOp::Divide => "div",
+                    BinaryOp::Divide => "sdiv",
                     BinaryOp::And => "and",
                     BinaryOp::Or => "or",
-                    BinaryOp::Equal => "eq",
-                    BinaryOp::NotEqual => "ne",
-                    BinaryOp::LessThan => "lt",
-                    BinaryOp::GreaterThan => "gt",
-                    BinaryOp::LessEqual => "le",
-                    BinaryOp::GreaterEqual => "ge",
+                    BinaryOp::Equal => "icmp eq",
+                    BinaryOp::NotEqual => "icmp ne",
+                    BinaryOp::LessThan => "icmp slt",
+                    BinaryOp::GreaterThan => "icmp sgt",
+                    BinaryOp::LessEqual => "icmp sle",
+                    BinaryOp::GreaterEqual => "icmp sge",
                 };
                 let reg = self.new_register();
                 self.code.push(format!("{} = {} i32 {}, {}", reg, op_code, lhs_code, rhs_code));
                 reg
             }
+
             Expr::And(lhs, rhs) => {
                 let lhs_code = self.generate_expr(lhs);
                 let rhs_code = self.generate_expr(rhs);
@@ -53,6 +55,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{} = and i32 {}, {}", reg, lhs_code, rhs_code));
                 reg
             }
+
             Expr::Or(lhs, rhs) => {
                 let lhs_code = self.generate_expr(lhs);
                 let rhs_code = self.generate_expr(rhs);
@@ -60,6 +63,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{} = or i32 {}, {}", reg, lhs_code, rhs_code));
                 reg
             }
+
             Expr::Identifier(name) => {
                 if let Some(llvm_name) = self.env.get(name) {
                     llvm_name.clone()
@@ -67,6 +71,7 @@ impl LLVMGenerator {
                     panic!("Undefined variable '{}'", name);
                 }
             }
+
             Expr::Let(bindings, body) => {
                 let mut local_env = self.env.clone();
                 for (name, expr) in bindings {
@@ -78,6 +83,25 @@ impl LLVMGenerator {
                 }
                 self.generate_expr(body)
             }
+
+            Expr::While(cond, body) => {
+                let cond_label = self.new_register();
+                let body_label = self.new_register();
+                let end_label = self.new_register();
+
+                self.code.push(format!("br label {}", cond_label));
+                self.code.push(format!("{}:", cond_label));
+                let cond_code = self.generate_expr(cond);
+                self.code.push(format!("br i1 {}, label {}, label {}", cond_code, body_label, end_label));
+
+                self.code.push(format!("{}:", body_label));
+                let body_code = self.generate_expr(body);
+                self.code.push(format!("br label {}", cond_label));
+
+                self.code.push(format!("{}:", end_label));
+                body_code
+            }
+
             Expr::Function(name, body) => {
                 let param_str = format!("i32 {}", name);
                 let signature = format!("define i32 @{}({})", name, param_str);
@@ -85,6 +109,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{}\n{{\n{}\n}}", signature, body_code));
                 String::from(name)
             }
+
             Expr::Lambda(params, body) => {
                 let param_strs: Vec<String> = params.iter().map(|p| format!("i32 {}", p)).collect();
                 let body_code = self.generate_expr(body);
@@ -97,6 +122,7 @@ impl LLVMGenerator {
                 ));
                 reg
             }
+
             Expr::Application(func_expr, arg_expr) => {
                 let func_code = self.generate_expr(func_expr);
                 let arg_code = self.generate_expr(arg_expr);
@@ -104,6 +130,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{} = call i32 {}({})", reg, func_code, arg_code));
                 reg
             }
+
             Expr::Pipe(func_expr, arg_expr) => {
                 let func_code = self.generate_expr(func_expr);
                 let arg_code = self.generate_expr(arg_expr);
@@ -111,6 +138,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{} = call i32 {}({})", reg, func_code, arg_code));
                 reg
             }
+
             Expr::If(cond, then_expr, else_expr) => {
                 let cond_code = self.generate_expr(cond);
                 let then_code = self.generate_expr(then_expr);
@@ -135,6 +163,7 @@ impl LLVMGenerator {
             Stmt::Expr(expr) => {
                 self.generate_expr(expr);
             }
+            
             Stmt::Let(name, expr) => {
                 let value_code = self.generate_expr(expr);
                 let llvm_name = self.new_register();
@@ -142,6 +171,7 @@ impl LLVMGenerator {
                 self.code.push(format!("{} = alloca i32", llvm_name));
                 self.code.push(format!("store i32 {}, i32* {}", value_code, llvm_name));
             }
+
             Stmt::Print(expr) => {
                 let value_code = self.generate_expr(expr);
                 self.code.push(format!(
@@ -152,7 +182,7 @@ impl LLVMGenerator {
         }
     }
 
-    pub fn generate_code(&mut self, expr: &Expr) -> String {
+    pub fn generate_code(&mut self, stmts: &[Stmt]) -> String {
         self.code.clear();
         for stmt in stmts {
             self.generate_stmt(stmt);

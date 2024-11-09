@@ -34,6 +34,7 @@ pub enum Expr {
     Match(Box<Expr>, Vec<(Pattern, Option<Expr>, Expr)>),
     Pipe(Box<Expr>, Box<Expr>),
     Let(Vec<(String, Expr)>, Box<Expr>),
+    While(Box<Expr>, Box<Expr>),
     Where(Box<Expr>, Vec<(String, Expr)>),
     Bool(bool),
     Not(Box<Expr>),
@@ -207,4 +208,5 @@ impl Expr {
 pub enum Stmt {
     Let(String, Expr),
     Expr(Expr),
+    Print(Expr),
 }
