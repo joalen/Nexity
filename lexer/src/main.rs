@@ -5,16 +5,12 @@ use std::io::{self, Read};
 
 
 fn main() {
-    let mut input = String::new();
-    io::stdin().read_to_string(&mut input).expect("Failed to read input");
+    let input = "let x = 10 + 20 * 3"; // A sample input
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let ast = Stmt::Let("x".to_string(), parser.parse_expr().unwrap());
 
-    let mut lexer = Lexer::new(&input);
-
-    loop {
-        let token = lexer.get_token();
-        println!("{:?}", token);
-        if token == Token::Eof {
-            break;
-        }
-    }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+    println!("Result: {:?}", result);  // Should output 70
 }

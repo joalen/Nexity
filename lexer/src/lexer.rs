@@ -1,5 +1,5 @@
 use std::str::Chars;
-
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
 pub enum ReservedToken { 
@@ -17,28 +17,35 @@ pub enum Token {
 }
 
 pub struct Lexer<'a> {
-    input: Chars<'a>,
-    current_char: Option<char>,
+    input: Arc<Mutex<Chars<'a>>>,
+    current_char: Arc<Mutex<Option<char>>>,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = Lexer {
-            input: input.chars(),
-            current_char: None,
+            input: Arc::new(Mutex::new(input.chars())),
+            current_char: Arc::new(Mutex::new(None)),
         };
         lexer.next_char();
         lexer
     }
 
     fn next_char(&mut self) {
-        self.current_char = self.input.next();
+        let mut input = self.input.lock().unwrap();
+        let mut current_char = self.current_char.lock().unwrap();
+        *current_char = input.next();
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(c) = self.current_char {
-            if c.is_whitespace() {
-                self.next_char();
+        loop {
+            let c = *self.current_char.lock().unwrap();
+            if let Some(c) = c {
+                if c.is_whitespace() {
+                    self.next_char();
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -48,16 +55,21 @@ impl<'a> Lexer<'a> {
     pub fn get_token(&mut self) -> Token {
         self.skip_whitespace();
 
-        match self.current_char {
+        let current_char = *self.current_char.lock().unwrap();
+        match current_char {
             Some(c) if c.is_alphabetic() => self.lex_identifier(),
             Some(c) if c.is_digit(10) || c == '.' => self.lex_number(),
             Some('#') => {
-                // Skip comments until the end of the line
-                while let Some(c) = self.current_char {
-                    if c == '\n' || c == '\r' {
+                loop {
+                    let c = *self.current_char.lock().unwrap();
+                    if let Some(c) = c {
+                        if c == '\n' || c == '\r' {
+                            break;
+                        }
+                        self.next_char();
+                    } else {
                         break;
                     }
-                    self.next_char();
                 }
                 self.next_char();
                 self.get_token()
@@ -72,15 +84,22 @@ impl<'a> Lexer<'a> {
 
     fn lex_identifier(&mut self) -> Token {
         let mut identifier = String::new();
-        if let Some(c) = self.current_char {
+
+        if let Some(c) = *self.current_char.lock().unwrap() {
             identifier.push(c);
             self.next_char();
         }
 
-        while let Some(c) = self.current_char {
-            if c.is_alphanumeric() {
-                identifier.push(c);
-                self.next_char();
+        // Continue while characters are alphanumeric
+        loop {
+            let c = *self.current_char.lock().unwrap();
+            if let Some(c) = c {
+                if c.is_alphanumeric() {
+                    identifier.push(c);
+                    self.next_char();
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -98,16 +117,24 @@ impl<'a> Lexer<'a> {
 
     fn lex_number(&mut self) -> Token {
         let mut num_str = String::new();
-        while let Some(c) = self.current_char {
-            if c.is_digit(10) || c == '.' {
-                num_str.push(c);
-                self.next_char();
+
+        loop {
+            let c = *self.current_char.lock().unwrap();
+            if let Some(c) = c {
+                if c.is_digit(10) || c == '.' {
+                    num_str.push(c);
+                    self.next_char();
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
         }
 
-        let num_val = num_str.parse::<f64>().unwrap_or(0.0);
-        Token::Number(num_val)
+        match num_str.parse::<f64>() {
+            Ok(num_val) => Token::Number(num_val),
+            Err(_) => Token::Number(0.0),
+        }
     }
 }
