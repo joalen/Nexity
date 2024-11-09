@@ -1,3 +1,5 @@
+use crate::interpreter::{Value, Env};
+
 #[derive(Debug, PartialEq)]
 pub enum Type {
     Int,
@@ -9,6 +11,7 @@ pub enum Type {
     TypeVar(String),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Expr 
 {
     Number(f64),
@@ -43,13 +46,128 @@ pub enum BinaryOp
     LessEqual,
     GreaterEqual,
 }
-
+#[derive(Debug, PartialEq)]
 pub enum Pattern 
 {
     Literal(f64),
     Variable(String),
     Constructor(String, Vec<Pattern>),
     Wildcard,
+}
+
+impl Expr {
+    fn apply_function(&self, func: Value, arg: Value) -> Result<Value, String> {
+        if let Value::Function(params, body, closure_env) = func {
+            if params.len() != 1 {
+                return Err("Function arity mismatch".into());
+            }
+            let mut new_env = closure_env.clone();
+            new_env.insert(params[0].clone(), arg);
+            body.evaluate(&mut new_env)
+        } else {
+            Err("Attempted to call a non-function value".into())
+        }
+    }
+
+    fn matches_pattern(&self, value: &Value, pattern: &Pattern, env: &mut Env) -> bool {
+        match (value, pattern) {
+            (Value::Number(n), Pattern::Literal(p)) => n == p,
+            (Value::Bool(b), Pattern::Literal(p)) => *b == (*p != 0.0),
+            (v, Pattern::Variable(name)) => {
+                env.insert(name.clone(), v.clone());
+                true
+            }
+            // Implement handling for Constructor patterns and wildcard patterns
+            (_, Pattern::Wildcard) => true,
+            _ => false,
+        }
+    }
+
+    pub fn evaluate(&self, env: &mut Env) -> Result<Value, String> {
+        match self {
+            Expr::Number(n) => Ok(Value::Number(*n)),
+            Expr::Bool(b) => Ok(Value::Bool(*b)),
+            Expr::Identifier(name) => env.get(name)
+                .cloned()
+                .ok_or_else(|| format!("Undefined variable '{}'", name)),
+
+            Expr::BinaryOp(lhs, op, rhs) => {
+                let left = lhs.evaluate(env)?;
+                let right = rhs.evaluate(env)?;
+                self.eval_binary_op(left, op, right)
+            }
+
+            Expr::If(cond, then_branch, else_branch) => {
+                let condition = cond.evaluate(env)?;
+                if self.is_truthy(&condition) {
+                    then_branch.evaluate(env)
+                } else {
+                    else_branch.evaluate(env)
+                }
+            }
+
+            Expr::Let(bindings, body) => {
+                let mut local_env = env.clone();
+                for (name, expr) in bindings {
+                    let value = expr.evaluate(&mut local_env)?;
+                    local_env.insert(name.clone(), value);
+                }
+                body.evaluate(&mut local_env)
+            }
+
+            Expr::Lambda(params, body) => {
+                Ok(Value::Function(params.clone(), body.clone(), env.clone()))
+            }
+
+            Expr::Application(func_expr, arg_expr) => {
+                let func = func_expr.evaluate(env)?;
+                let arg = arg_expr.evaluate(env)?;
+                self.apply_function(func, arg)
+            }
+
+            Expr::Match(expr, cases) => {
+                let value = expr.evaluate(env)?;
+                for (pattern, guard, result) in cases {
+                    if self.matches_pattern(&value, pattern, env) {
+                        if let Some(guard_expr) = guard {
+                            if !self.is_truthy(&guard_expr.evaluate(env)?) {
+                                continue;
+                            }
+                        }
+                        return result.evaluate(env);
+                    }
+                }
+                Err("No matching pattern found".into())
+            }
+
+            // Handle other cases here, like lists, tuples, type annotations, etc.
+            _ => Err("Unsupported expression".into()),
+        }
+    }
+
+    fn eval_binary_op(&self, left: Value, op: &BinaryOp, right: Value) -> Result<Value, String> {
+        match (left, right, op) {
+            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Add) => Ok(Value::Number(lhs + rhs)),
+            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Subtract) => Ok(Value::Number(lhs - rhs)),
+            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Multiply) => Ok(Value::Number(lhs * rhs)),
+            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Divide) => {
+                if rhs != 0.0 {
+                    Ok(Value::Number(lhs / rhs))
+                } else {
+                    Err("Division by zero".into())
+                }
+            }
+            _ => Err("Type error in binary operation".into()),
+        }
+    }
+
+    fn is_truthy(&self, value: &Value) -> bool {
+        match value {
+            Value::Bool(b) => *b,
+            Value::Number(n) => *n != 0.0,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

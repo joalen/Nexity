@@ -1,4 +1,9 @@
 mod lexer;
+mod ast; 
+mod parser;
+mod interpreter;
+
+
 use lexer::{Lexer, Token};
 use std::io::{self, Read};
 
