@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::ast::{Expr, BinaryOp, Value};
+use crate::ast::{Expr, BinaryOp, Value, Stmt};
 
 pub struct LLVMGenerator {
     code: Vec<String>,
@@ -130,9 +130,33 @@ impl LLVMGenerator {
         }
     }
 
+    pub fn generate_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(expr) => {
+                self.generate_expr(expr);
+            }
+            Stmt::Let(name, expr) => {
+                let value_code = self.generate_expr(expr);
+                let llvm_name = self.new_register();
+                self.env.insert(name.clone(), llvm_name.clone());
+                self.code.push(format!("{} = alloca i32", llvm_name));
+                self.code.push(format!("store i32 {}, i32* {}", value_code, llvm_name));
+            }
+            Stmt::Print(expr) => {
+                let value_code = self.generate_expr(expr);
+                self.code.push(format!(
+                    "call void @print(i32 {})",
+                    value_code
+                ));
+            }
+        }
+    }
+
     pub fn generate_code(&mut self, expr: &Expr) -> String {
         self.code.clear();
-        self.generate_expr(expr);
+        for stmt in stmts {
+            self.generate_stmt(stmt);
+        }
         self.code.join("\n")
     }
 }
