@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::ast::{Expr, BinaryOp, Value, Stmt};
+use crate::ast::{Expr, BinaryOp, Stmt};
 
 pub struct LLVMGenerator {
     code: Vec<String>,
@@ -34,6 +34,7 @@ impl LLVMGenerator {
                     BinaryOp::Subtract => "sub",
                     BinaryOp::Multiply => "mul",
                     BinaryOp::Divide => "sdiv",
+                    BinaryOp::Modulo => "srem",
                     BinaryOp::And => "and",
                     BinaryOp::Or => "or",
                     BinaryOp::Equal => "icmp eq",
@@ -110,6 +111,20 @@ impl LLVMGenerator {
                 String::from(name)
             }
 
+            Expr::Call(func, args) => {
+                let func_code = self.generate_expr(func);
+                let args_code: Vec<String> = args.iter().map(|arg| self.generate_expr(arg)).collect();
+                let reg = self.new_register();
+                self.code.push(format!("{} = call i32 {}({})", reg, func_code, args_code.join(", ")));
+                reg
+            }
+
+            Expr::Return(expr) => {
+                let ret_code = self.generate_expr(expr);
+                self.code.push(format!("ret i32 {}", ret_code));
+                ret_code
+            }
+
             Expr::Lambda(params, body) => {
                 let param_strs: Vec<String> = params.iter().map(|p| format!("i32 {}", p)).collect();
                 let body_code = self.generate_expr(body);
@@ -163,7 +178,7 @@ impl LLVMGenerator {
             Stmt::Expr(expr) => {
                 self.generate_expr(expr);
             }
-            
+
             Stmt::Let(name, expr) => {
                 let value_code = self.generate_expr(expr);
                 let llvm_name = self.new_register();
@@ -178,6 +193,11 @@ impl LLVMGenerator {
                     "call void @print(i32 {})",
                     value_code
                 ));
+            }
+
+            Stmt::Return(expr) => {
+                let return_code = self.generate_expr(expr);
+                self.code.push(format!("ret i32 {}", return_code));
             }
         }
     }

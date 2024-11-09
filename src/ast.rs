@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-// Value Enum for holding values
-#[derive(Debug, PartialEq, Clone)] // Derive Clone for simple Value variants
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Number(f64),
     Bool(bool),
-    Function(Vec<String>, Box<Expr>, Env),  // Stores parameters, function body, and closure
+    Function(Vec<String>, Box<Expr>, Env), 
 }
 
 // Type alias for the environment
@@ -29,6 +28,8 @@ pub enum Expr {
     BinaryOp(Box<Expr>, BinaryOp, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Function(String, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
+    Return(Box<Expr>),
     Lambda(Vec<String>, Box<Expr>),
     Application(Box<Expr>, Box<Expr>),
     Match(Box<Expr>, Vec<(Pattern, Option<Expr>, Expr)>),
@@ -49,6 +50,7 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     And,
     Or,
     Equal,
@@ -209,4 +211,5 @@ pub enum Stmt {
     Let(String, Expr),
     Expr(Expr),
     Print(Expr),
+    Return(Expr),
 }
