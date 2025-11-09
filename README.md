@@ -40,6 +40,8 @@ This parser implements the top-down approach rather than LR parsers or recursive
 - Function definitions (f x = expr)
 - Pipe operators (| func | arg)
 
+Credits to: https://jeremymikkola.com/posts/2018_03_25_understanding_algorithm_w.html for a nice read on how the Hindley-Milner (Algorithm W) works. Note: taking programming language paradigms will help you understand most of what the article talks about.
+
 ### Architecture Summary
 This is the flow of Nexity (as a state machine):
 <img width="1327" height="455" alt="image" src="https://github.com/user-attachments/assets/c838ffb0-1e90-44d7-88b2-5376360106ea" />
