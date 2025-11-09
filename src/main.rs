@@ -3,9 +3,9 @@ mod parser;
 mod llvmgen;
 mod ast; 
 
-use lexer::{Lexer};
-use parser::{Parser, Precedence};
-use crate::ast::type_inference::TypeInference;
+use std::vec;
+
+use crate::ast::types::TypeInference;
 use crate::ast::ast::{Expr};
 
 fn main() {
@@ -18,14 +18,21 @@ fn main() {
         Err(err) => eprintln!("Type inference error: {}", err),
     }
 
-    // identifier 
-    let mut env = type_infer.env.clone();
-    env.insert("x".into(), ast::ast::Type::Float);
-    let expr2 = Expr::Identifier("x".to_string());
+    // identity lambda 
+    let id_expr = Expr::Lambda(
+        vec!["x".to_string()],
+        Box::new(Expr::Identifier("x".to_string()))
+    );
 
-    match expr2.infer_type(&mut env, &mut type_infer.type_var_gen) {
-        Ok(ty) => println!("Inferred type: {:?}", ty),
-        Err(err) => eprintln!("Type inference error: {}", err),
-    }
-    
+    // constant lambda
+    let const_expr = Expr::Lambda( 
+        vec!["x".to_string(), "y".to_string()],
+        Box::new(Expr::Number(42.0))
+    );
+
+    let id_type = type_infer.infer(&id_expr).unwrap();
+    let const_type = type_infer.infer(&const_expr).unwrap();
+
+    println!("id_expr type: {:?}", id_type);
+    println!("const_expr type: {:?}", const_type);
 }
