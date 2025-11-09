@@ -3,12 +3,14 @@ use crate::ast::{Expr, BinaryOp};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-enum Precedence 
+pub enum Precedence 
 {
     Lowest,
-    Sum,
-    Product,
-    Prefix,
+    Pipe, 
+    Sum, 
+    Product, 
+    Application,
+    Prefix
 }
 
 impl Precedence 
@@ -19,6 +21,7 @@ impl Precedence
         {
             Token::Char('+') | Token::Char('-') => Precedence::Sum,
             Token::Char('*') | Token::Char('/') => Precedence::Product,
+            Token::Pipe => Precedence::Pipe,
             _ => Precedence::Lowest,
         }
     }
@@ -53,6 +56,13 @@ impl<'a> Parser<'a>
             if precedence >= op_precedence 
             {
                 break;
+            }
+
+            // handling juxtaposition (or basically implicit application)
+            if matches!(self.current_token, Token::Identifier(_) | Token::Char('('))
+            { 
+                left = self.parse_application(left)?;
+                continue;
             }
 
             left = self.parse_infix(left, op_precedence)?;
@@ -123,6 +133,8 @@ impl<'a> Parser<'a>
             Token::Char('-') => BinaryOp::Subtract,
             Token::Char('*') => BinaryOp::Multiply,
             Token::Char('/') => BinaryOp::Divide,
+            Token::Char('%') => BinaryOp::Modulo,
+
             _ => return None,
         };
 

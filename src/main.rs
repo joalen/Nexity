@@ -3,16 +3,22 @@ mod ast;
 mod parser;
 mod llvmgen;
 
-use lexer::{Lexer, Token};
-use parser::{Parser};
-use std::io::{self, Read};
-
-
+use lexer::{Lexer};
+use parser::{Parser, Precedence};
 
 fn main() {
-    let input = "let x = 10 + 20 * 3"; // A sample input
+    let input = "10 + 20 * 3 % 5";
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
-    //let ast = Stmt::Let("x".to_string(), parser.parse_expr().unwrap());
+    
+    match parser.parse_expr(Precedence::Lowest)
+    { 
+        Some(ast) => { 
+            println!("Parsed AST: {:?}", ast);
+        }
+        None => { 
+            eprintln!("Failure!!")
+        }
+    }
 
 }
