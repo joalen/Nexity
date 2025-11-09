@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, Token};
-use crate::ast::{Expr, BinaryOp};
+use crate::ast::ast::{Expr, BinaryOp};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]

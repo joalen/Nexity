@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::ast::{Expr, BinaryOp, Stmt};
+use crate::ast::ast::{Expr, BinaryOp, Stmt};
 
 pub struct LLVMGenerator {
     code: Vec<String>,

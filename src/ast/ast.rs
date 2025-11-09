@@ -1,5 +1,104 @@
 use std::collections::HashMap;
 
+// things for my type-inferencing engine
+
+pub type TypeEnv = HashMap<String, Type>; // TODO: will make this a TypeScheme to have polymorphic types (like for all a. a -> a)
+pub struct TypeVarGenerator
+{ 
+    counter: usize,
+}
+
+impl TypeVarGenerator 
+{ 
+    pub fn new() -> Self 
+    { 
+        Self { counter: 0}
+    }
+
+    pub fn fresh(&mut self) -> Type 
+    { 
+        let name = format!("t{}", self.counter);
+        self.counter += 1;
+        Type::TypeVar(name)
+    }
+}
+
+pub type Substitution = std::collections::HashMap<String, Type>;
+
+// apply substitution to a type
+pub fn apply_substitution(ty: &Type, subst: &Substitution) -> Type 
+{ 
+    match ty
+    { 
+        Type::TypeVar(name) => subst.get(name).cloned().unwrap_or(ty.clone()),
+        Type::Function(param, ret) => 
+        { 
+            Type::Function(
+                Box::new(apply_substitution(param, subst)),
+                Box::new(apply_substitution(ret, subst)),
+            )
+        }
+
+        _ => ty.clone(),
+    }
+}
+
+// get the two substitutions 
+pub fn compose_substitutions(s1: Substitution, s2: Substitution) -> Substitution
+{ 
+    let mut result = s2.into_iter() 
+        .map(|(k, v) | (k, apply_substitution(&v, &s1)))
+        .collect::<Substitution>();
+    
+    result.extend(s1);
+    result
+}
+
+// checking to see if type variable occurs inside type (occurs check)
+fn occurs_check(var: &str, ty: &Type) -> bool 
+{ 
+    match ty 
+    { 
+        Type::TypeVar(name) => name == var,
+        Type::Function(param, ret) => occurs_check(var, param) || occurs_check(var, ret),
+        _ => false,
+    }
+}
+
+pub fn unify(t1: &Type, t2: &Type) -> Result<Substitution, String> 
+{ 
+    match (t1, t2)
+    { 
+        // primitives
+        (Type::Int, Type::Int) | (Type::Float, Type::Float)
+        | (Type::Bool, Type::Bool) | (Type::Char, Type::Char) => Ok(Substitution::new()),
+    
+        // type vars on either side
+        (Type::TypeVar(name), t) | (t, Type::TypeVar(name)) =>
+        { 
+            if occurs_check(name, t)
+            { 
+                return Err(format!("Occurs check failed for type variable '{}'", name));
+            }
+
+            let mut subs = Substitution::new();
+            subs.insert(name.clone(), t.clone());
+            Ok(subs)
+        }
+
+        // function types
+        (Type::Function(param1, ret1), Type::Function(param2, ret2)) => {
+            let s1 = unify(param1, param2)?;
+            let s2 = unify(&apply_substitution(ret1, &s1), &apply_substitution(ret2, &s1))?;
+            Ok(compose_substitutions(s1, s2))
+        }
+
+        // can't unify
+        _ => Err(format!("Cannot unify types {:?} and {:?}", t1, t2)),
+    }
+}
+
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Number(f64),
