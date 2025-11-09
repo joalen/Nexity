@@ -25,6 +25,7 @@ pub enum Type {
 pub enum Expr {
     Number(f64),
     Identifier(String),
+    String(String),
     BinaryOp(Box<Expr>, BinaryOp, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Function(String, Box<Expr>),

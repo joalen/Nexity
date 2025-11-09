@@ -1,6 +1,7 @@
+use crate::ast::ast::BinaryOp;
 use crate::ast::ast::{Expr, Type};
 use std::collections::HashMap;
-use std::collections::HashSet; 
+use std::collections::HashSet;
 
 pub type TypeEnv = HashMap<String, TypeScheme>;
 pub type Substitution = std::collections::HashMap<String, Type>;
@@ -146,6 +147,8 @@ impl Expr
         match self
         {
             Expr::Number(_) => Ok(Type::Float),
+            Expr::Bool(_) => Ok(Type::Bool),
+            Expr::String(_) => Ok(Type::Custom("String".to_string())),
 
             Expr::Identifier(name) => 
             { 
@@ -157,8 +160,60 @@ impl Expr
             { 
                 let left_ty = lhs.infer_type(env, type_var_gen)?;
                 let right_ty = rhs.infer_type(env, type_var_gen)?;
-                // TODO: need to implement unification of binary operators
-                Err("BinaryOp type inference not implemented".into())
+                
+                match op
+                { 
+                    // arithmetic and numerical operations
+                    BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide
+                    | BinaryOp::Modulo => 
+                    { 
+                        if (left_ty == Type::Float && right_ty == Type::Float) // check for floats on both sides of expr
+                        { 
+                            Ok(Type::Float)
+                        } else if (left_ty == Type::Int && right_ty == Type::Int) // check for ints on both sides of expr
+                        { 
+                            Ok(Type::Int)
+                        } else 
+                        { 
+                            Err("Type error in binary operation. Must require numeric types on both sides".into())
+                        }
+                    }
+
+                    // logic operations 
+                    BinaryOp::And | BinaryOp::Or => 
+                    { 
+                        if (left_ty == Type::Bool && right_ty == Type::Bool)
+                        { 
+                            Ok(Type::Bool)
+                        } else { 
+                            Err("Logical operations require boolean types on both sides".into())
+                        }
+                    }
+
+                    // equality and comparison 
+                    BinaryOp::Equal | BinaryOp::NotEqual =>
+                    { 
+                        if (left_ty == right_ty)
+                        { 
+                            Ok(Type::Bool)
+                        } else { 
+                            Err("Equality operations require both sides to be of the same type".into())
+                        }
+                    }
+
+                    BinaryOp::LessThan | BinaryOp::GreaterThan | BinaryOp::LessEqual | BinaryOp::GreaterEqual =>
+                    { 
+                        if (left_ty == Type::Float && right_ty == Type::Float) ||
+                           (left_ty == Type::Int && right_ty == Type::Int)
+                        { 
+                            Ok(Type::Bool)
+                        } else { 
+                            Err("Comparison operations require numeric types on both sides".into())
+                        }
+                    }
+
+                    _ => Err(format!("Unsupported binary operation: {:?}", op).into()),
+                }
             }
 
             Expr::Lambda(params, body) =>
@@ -183,7 +238,7 @@ impl Expr
                 Ok(func_type)
             }
 
-            _ => Err("Not implemented!".into())
+            _ => Err("Expression not supported".into()),
         }
     }
 }
