@@ -167,48 +167,49 @@ impl Expr
                     BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide
                     | BinaryOp::Modulo => 
                     { 
-                        if (left_ty == Type::Float && right_ty == Type::Float) // check for floats on both sides of expr
-                        { 
-                            Ok(Type::Float)
-                        } else if (left_ty == Type::Int && right_ty == Type::Int) // check for ints on both sides of expr
-                        { 
-                            Ok(Type::Int)
-                        } else 
-                        { 
-                            Err("Type error in binary operation. Must require numeric types on both sides".into())
+                        unify(&left_ty, &right_ty)?; // unify operands together
+                        let numeric_ty = type_var_gen.fresh(); // fresh var for result
+
+                        match (&left_ty, &right_ty) {
+                            (Type::Float, Type::Float) => Ok(Type::Float),
+                            (Type::Int, Type::Int) => Ok(Type::Int),
+                            (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Ok(Type::Float),
+                            (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Ok(Type::Int),
+                            (Type::TypeVar(_), Type::TypeVar(_)) => {
+                                // Both are type vars - default to Float
+                                Ok(Type::Float)
+                            }
+                            _ => Err("Arithmetic operations require numeric types on both sides".into())
                         }
                     }
 
                     // logic operations 
                     BinaryOp::And | BinaryOp::Or => 
                     { 
-                        if (left_ty == Type::Bool && right_ty == Type::Bool)
-                        { 
-                            Ok(Type::Bool)
-                        } else { 
-                            Err("Logical operations require boolean types on both sides".into())
-                        }
+                        // Unify both with Bool type
+                        unify(&left_ty, &Type::Bool)?;
+                        unify(&right_ty, &Type::Bool)?;
+                        Ok(Type::Bool)
                     }
 
                     // equality and comparison 
                     BinaryOp::Equal | BinaryOp::NotEqual =>
                     { 
-                        if (left_ty == right_ty)
-                        { 
-                            Ok(Type::Bool)
-                        } else { 
-                            Err("Equality operations require both sides to be of the same type".into())
-                        }
+                        unify(&left_ty, &right_ty)?;
+                        Ok(Type::Bool)
                     }
 
                     BinaryOp::LessThan | BinaryOp::GreaterThan | BinaryOp::LessEqual | BinaryOp::GreaterEqual =>
                     { 
-                        if (left_ty == Type::Float && right_ty == Type::Float) ||
-                           (left_ty == Type::Int && right_ty == Type::Int)
-                        { 
-                            Ok(Type::Bool)
-                        } else { 
-                            Err("Comparison operations require numeric types on both sides".into())
+                        unify(&left_ty, &right_ty)?;
+
+                        match (&left_ty, &right_ty) {
+                            (Type::Float, Type::Float) => Ok(Type::Bool),
+                            (Type::Int, Type::Int) => Ok(Type::Bool),
+                            (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Ok(Type::Bool),
+                            (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Ok(Type::Bool),
+                            (Type::TypeVar(_), Type::TypeVar(_)) => Ok(Type::Bool),
+                            _ => Err("Comparison operations require numeric types on both sides".into())
                         }
                     }
 
@@ -236,6 +237,73 @@ impl Expr
                 });
 
                 Ok(func_type)
+            }
+
+            Expr::Let(bindings, body) =>
+            { 
+                let mut local_env = env.clone();
+
+                for (name, expr) in bindings
+                { 
+                    // assigning provisional monotype to check for recursive possibility 
+                    let provisional_ty = type_var_gen.fresh();
+                    local_env.insert( 
+                        name.clone(), 
+                        TypeScheme { type_vars: vec![], ty: provisional_ty.clone() }
+                    );
+
+                    let inferred_ty = expr.infer_type(&mut local_env, type_var_gen)?; // infer actual type
+                    let subst = unify(& provisional_ty, &inferred_ty)?; // unify provisional with inferred type
+
+                    // apply substitutions to maintain consistency
+                    let updated_ty = apply_substitution(&inferred_ty, &subst);
+                    let updated_provisional = apply_substitution(&provisional_ty, &subst);
+
+                    if updated_ty != updated_provisional
+                    { 
+                        return Err(format!(
+                            "Polymorphic recursion detected in function '{}: {:?} vs {:?}",
+                            name, updated_provisional, updated_ty
+                        ))
+                    }
+
+                    // generalize and append to env 
+                    let scheme = generalize(&local_env, &updated_ty);
+                    env.insert(name.clone(), scheme); 
+                }
+
+                body.infer_type(env, type_var_gen)
+            }
+
+            Expr::If(cond, then_branch, else_branch) => 
+            {
+                let cond_ty = cond.infer_type(env, type_var_gen)?;
+                if cond_ty != Type::Bool {
+                    return Err("Condition in if-expression must be Bool".into());
+                }
+            
+                let then_ty = then_branch.infer_type(env, type_var_gen)?;
+                let else_ty = else_branch.infer_type(env, type_var_gen)?;
+            
+                unify(&then_ty, &else_ty)?;
+                Ok(then_ty)
+            }
+
+            Expr::Application(func, arg) => {
+                let func_ty = func.infer_type(env, type_var_gen)?;
+                let arg_ty = arg.infer_type(env, type_var_gen)?;
+                let result_ty = type_var_gen.fresh();
+                
+                let func_expected_ty = Type::Function(Box::new(arg_ty.clone()), Box::new(result_ty.clone()));
+            
+                // Perform unification and store the resulting substitution
+                let subst = unify(&func_ty, &func_expected_ty)?;
+                
+                // Apply the substitution to func_ty (or other types that were unified)
+                let func_ty_after = apply_substitution(&func_ty, &subst);
+                let arg_ty_after = apply_substitution(&arg_ty, &subst);
+            
+                Ok(result_ty)
             }
 
             _ => Err("Expression not supported".into()),
