@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, Token};
-use crate::ast::ast::{Expr, BinaryOp};
+use crate::ast::ast::{Expr, BinaryOp, Pattern};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -110,6 +110,12 @@ impl<'a> Parser<'a>
             Token::Identifier(id) => 
             {
                 let id = id.clone();
+                
+                if id == "match" // check to see if we have a match statement
+                { 
+                    self.next_token(); // consume the 'match'
+                    self.parse_match(); // now do the parsing action
+                }
                 self.next_token();
                 Some(Expr::Identifier(id))
             }
@@ -163,6 +169,84 @@ impl<'a> Parser<'a>
             return Some(Expr::Lambda(params, Box::new(body)));
         }
         None
+    }
+
+    fn parse_pattern(&mut self) -> Option<Pattern> 
+    { 
+        match &self.current_token 
+        {
+            Token::Number(n) =>  
+            { 
+                let v = *n; 
+                self.next_token();
+                Some(Pattern::Literal(v))
+            }
+
+            Token::Identifier(name) => 
+            { 
+                let n = name.clone();
+                self.next_token();
+                Some(Pattern::Variable(n))
+            }
+
+            Token::Char('_') => 
+            { 
+                self.next_token();
+                Some(Pattern::Wildcard)
+            }
+
+            _ => None,
+        }
+    }
+
+    fn parse_match(&mut self) -> Option<Expr> 
+    { 
+        // consumed already by parse_prefix() 
+        let scrutinee = self.parse_expr(Precedence::Lowest)?;
+
+        if self.current_token != Token::Char('{') 
+        {
+            return None;
+        }
+
+        self.next_token(); // consume 
+
+        let mut arms = Vec::new();
+
+        while self.current_token != Token::Char('}')
+        { 
+            let pat = self.parse_pattern()?;
+
+            // optional guarding for <expr> 
+            let guard = if let Token::Identifier(id) = &self.current_token {
+                if id == "if" {
+                    self.next_token(); // consume 'if'
+                    Some(self.parse_expr(Precedence::Lowest)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // expect the => 
+            if self.current_token != Token::Arrow {
+                return None;
+            }
+            self.next_token(); // consume '=>'
+
+            // parse the resulting expression 
+            let body = self.parse_expr(Precedence::Lowest)?;
+            arms.push((pat, guard, body));
+
+            // consume any optional comma after getting resultant expression
+            if self.current_token == Token::Char(',') {
+                self.next_token();
+            }
+        }
+
+        self.next_token(); // consume the closing '}'
+        Some(Expr::Match(Box::new(scrutinee), arms)) // fully parsed out match
     }
 
     fn parse_application(&mut self, func: Expr) -> Option<Expr> 

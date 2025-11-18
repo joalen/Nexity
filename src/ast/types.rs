@@ -1,4 +1,4 @@
-use crate::ast::ast::BinaryOp;
+use crate::ast::ast::{BinaryOp, Pattern};
 use crate::ast::ast::{Expr, Type};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -306,6 +306,45 @@ impl Expr
                 Ok(result_ty)
             }
 
+            Expr::Match(scrutinee, arms) => 
+            { 
+                let scrutinee_ty = scrutinee.infer_type(env, type_var_gen)?;
+                let mut arm_tys = Vec::new();
+
+                for (pattern, guard, body) in arms 
+                { 
+                    let (par_ty, bindings) = infer_pattern(pattern, type_var_gen);
+                    unify(&scrutinee_ty, &par_ty)?;
+
+                    // extend to environment with generalized pattern bindings 
+                    let mut local_env = env.clone();
+
+                    for (name, ty) in bindings
+                    { 
+                        let scheme = generalize(env, &ty);
+                        local_env.insert(name, scheme);
+                    }
+
+                    // optional guards check
+                    if let Some(g) = guard 
+                    { 
+                        let guard_ty = g.infer_type(&mut local_env, type_var_gen)?;
+                        unify(&guard_ty, &Type::Bool)?;
+                    }
+
+                    let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
+                    arm_tys.push(body_ty);
+                }
+
+                // now unify all types
+                let first = arm_tys[0].clone();
+                for t in arm_tys.iter().skip(1) {
+                    unify(&first, t)?;
+                }
+            
+                Ok(first)
+            }
+
             _ => Err("Expression not supported".into()),
         }
     }
@@ -327,6 +366,45 @@ fn free_type_vars_in_env(env: &TypeEnv) -> HashSet<String> {
     env.values()
         .flat_map(|scheme| free_type_vars(&scheme.ty))
         .collect()
+}
+
+pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> (Type, Vec<(String, Type)>) 
+{
+    match pattern {
+        Pattern::Literal(_) => {
+            // You are using Number literals = Float
+            (Type::Float, vec![])
+        }
+
+        Pattern::Variable(name) => {
+            let tv = type_var_gen.fresh();
+            (tv.clone(), vec![(name.clone(), tv)])
+        }
+
+        Pattern::Wildcard => {
+            (type_var_gen.fresh(), vec![])
+        }
+
+        Pattern::Constructor(_, subpatterns) => {
+            // If you add ADTs later, fill this in properly
+            let mut bindings = vec![];
+            let mut arg_tys = vec![];
+
+            for pat in subpatterns {
+                let (ty, pat_bindings) = infer_pattern(pat, type_var_gen);
+                bindings.extend(pat_bindings);
+                arg_tys.push(ty);
+            }
+
+            // constructor type unknown now → fresh type, unify later
+            let result_ty = type_var_gen.fresh();
+            let fn_ty = arg_tys.into_iter().rfold(result_ty.clone(), |ret, param| {
+                Type::Function(Box::new(param), Box::new(ret))
+            });
+
+            (fn_ty, bindings)
+        }
+    }
 }
 
 pub fn generalize(env: &TypeEnv, ty: &Type) -> TypeScheme {

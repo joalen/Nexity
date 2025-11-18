@@ -128,6 +128,10 @@ impl<'a> Lexer<'a> {
 
         match identifier.as_str() {
             "case" => Token::ReserveTok(ReservedToken::Case), 
+            "of"   => Token::ReserveTok(ReservedToken::Of),
+            "if"   => Token::ReserveTok(ReservedToken::If),
+            "then" => Token::ReserveTok(ReservedToken::Then),
+            "else" => Token::ReserveTok(ReservedToken::Else),
             "Classm" => Token::ReserveTok(ReservedToken::Classm),
             "Data" => Token::ReserveTok(ReservedToken::Data),
             "Deriving" => Token::ReserveTok(ReservedToken::Deriving),

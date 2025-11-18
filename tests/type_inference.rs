@@ -1,5 +1,5 @@
-use nexity::ast::ast::{Expr, Type, BinaryOp};
-use nexity::ast::types::TypeInference;
+use nexity::ast::ast::{Expr, Type, BinaryOp, Pattern};
+use nexity::ast::types::{TypeInference, TypeScheme};
 
 #[test]
 fn test_valid_binary_operations_inference()
@@ -181,6 +181,106 @@ fn test_let_generalization_works() {
         ))
     );
     
+    let mut infer = TypeInference::new();
+    let result = infer.infer(&expr);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_match_literal()
+// try something like: match 5 { 5 => 1; _ => 0 }
+{ 
+    let expr = Expr::Match(
+        Box::new(Expr::Number(5.0)),
+        vec![
+            (Pattern::Literal(5.0), None, Expr::Number(1.0)),
+            (Pattern::Wildcard, None, Expr::Number(0.0)),
+        ]
+    );
+
+    let mut infer = TypeInference::new();
+    let ty = infer.infer(&expr).unwrap();
+    assert_eq!(ty, Type::Float);
+}
+
+#[test]
+fn test_match_wildcard() 
+// test for the wildcard
+{ 
+    let expr = Expr::Match(
+        Box::new(Expr::Bool(true)),
+        vec![
+            (Pattern::Wildcard, None, Expr::Number(10.0))
+        ]
+    );
+
+    let mut infer = TypeInference::new();
+    let ty = infer.infer(&expr).unwrap();
+    assert_eq!(ty, Type::Float);
+}
+
+fn test_match_arm_type_mismatch_fails()
+    // Should fail: match x { _ => 1, _ => true }
+{ 
+    let expr = Expr::Match(
+        Box::new(Expr::Number(5.0)),
+        vec![
+            (Pattern::Wildcard, None, Expr::Number(1.0)),
+            (Pattern::Wildcard, None, Expr::Bool(true)),
+        ]
+    );
+
+    let mut infer = TypeInference::new();
+    let result = infer.infer(&expr);
+
+    assert!(result.is_err(), "Match branches must unify");
+}
+
+#[test]
+fn test_match_guard_must_be_bool()
+// guard is '5' -> not a boolean
+{ 
+    let expr = Expr::Match(
+        Box::new(Expr::Number(10.0)),
+        vec![
+            (
+                Pattern::Variable("x".into()),
+                Some(Expr::Number(5.0)), // NOT boolean
+                Expr::Number(0.0)
+            )
+        ]
+    );
+
+    let mut infer = TypeInference::new();
+    let result = infer.infer(&expr);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_match_generalization_with_identity()
+{ 
+    let expr = Expr::Match(
+        Box::new(Expr::Number(10.0)),
+        vec![(
+            Pattern::Variable("id".into()),
+            None,
+            Expr::Let(
+                vec![(
+                    "five".into(),
+                    Expr::Application(
+                        Box::new(Expr::Identifier("id".into())),
+                        Box::new(Expr::Number(5.0))
+                    )
+                )],
+                Box::new(Expr::Application(
+                    Box::new(Expr::Identifier("id".into())),
+                    Box::new(Expr::Bool(true)),
+                ))
+            )
+        )]
+    );
+
     let mut infer = TypeInference::new();
     let result = infer.infer(&expr);
     assert!(result.is_ok());
