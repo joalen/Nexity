@@ -239,40 +239,46 @@ impl Expr
                 Ok(func_type)
             }
 
-            Expr::Let(bindings, body) =>
-            { 
-                let mut local_env = env.clone();
-
-                for (name, expr) in bindings
-                { 
-                    // assigning provisional monotype to check for recursive possibility 
-                    let provisional_ty = type_var_gen.fresh();
-                    local_env.insert( 
-                        name.clone(), 
-                        TypeScheme { type_vars: vec![], ty: provisional_ty.clone() }
-                    );
-
-                    let inferred_ty = expr.infer_type(&mut local_env, type_var_gen)?; // infer actual type
-                    let subst = unify(& provisional_ty, &inferred_ty)?; // unify provisional with inferred type
-
-                    // apply substitutions to maintain consistency
-                    let updated_ty = apply_substitution(&inferred_ty, &subst);
-                    let updated_provisional = apply_substitution(&provisional_ty, &subst);
-
-                    if updated_ty != updated_provisional
-                    { 
-                        return Err(format!(
-                            "Polymorphic recursion detected in function '{}: {:?} vs {:?}",
-                            name, updated_provisional, updated_ty
-                        ))
-                    }
-
-                    // generalize and append to env 
-                    let scheme = generalize(&local_env, &updated_ty);
-                    env.insert(name.clone(), scheme); 
+            Expr::Let(bindings, body) => {
+                // Step 1: Create fresh type variables for each binding
+                let mut placeholders: HashMap<String, Type> = HashMap::new();
+                for (name, _) in bindings.iter() {
+                    let tv = type_var_gen.fresh();
+                    placeholders.insert(name.clone(), tv);
                 }
-
-                body.infer_type(env, type_var_gen)
+            
+                // Step 2: Extend the environment with placeholders for mutual recursion
+                let mut local_env = env.clone();
+                for (name, tv) in placeholders.iter() {
+                    local_env.insert(
+                        name.clone(),
+                        TypeScheme { type_vars: vec![], ty: tv.clone() },
+                    );
+                }
+            
+                // Step 3: Infer the type of each RHS under the extended environment
+                let mut subst: Substitution = Substitution::new();
+                for (name, expr) in bindings.iter() {
+                    let inferred_ty = expr.infer_type(&mut local_env, type_var_gen)?;
+                    let tv = placeholders.get(name).unwrap();
+                    let s = unify(tv, &inferred_ty)?;
+                    subst = compose_substitutions(s, subst);
+            
+                    // Apply substitution to all types in the environment
+                    for (_, scheme) in local_env.iter_mut() {
+                        scheme.ty = apply_substitution(&scheme.ty, &subst);
+                    }
+                }
+            
+                // Step 4: Generalize each binding and update the outer environment
+                for (name, _) in bindings.iter() {
+                    let final_ty = apply_substitution(placeholders.get(name).unwrap(), &subst);
+                    env.insert(name.clone(), generalize(env, &final_ty));
+                }
+            
+                // Step 5: Infer the body type
+                let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
+                Ok(apply_substitution(&body_ty, &subst))
             }
 
             Expr::If(cond, then_branch, else_branch) => 

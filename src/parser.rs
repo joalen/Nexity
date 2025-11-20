@@ -1,4 +1,4 @@
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{Lexer, ReservedToken, Token};
 use crate::ast::ast::{Expr, BinaryOp, Pattern};
 
 
@@ -7,6 +7,7 @@ pub enum Precedence
 {
     Lowest,
     Pipe, 
+    Comparison,
     Sum, 
     Product, 
     Application,
@@ -22,6 +23,7 @@ impl Precedence
             Token::Char('+') | Token::Char('-') => Precedence::Sum,
             Token::Char('*') | Token::Char('/') => Precedence::Product,
             Token::Pipe => Precedence::Pipe,
+            Token::DoubleEquals => Precedence::Comparison,
             _ => Precedence::Lowest,
         }
     }
@@ -76,7 +78,7 @@ impl<'a> Parser<'a>
         if let Token::Identifier(name) = &self.current_token 
         {
             let function_name = name.clone();
-            self.next_token(); // consumator -- function name
+            self.next_token();
 
             let mut params = Vec::new();
             while let Token::Identifier(param) = &self.current_token 
@@ -110,11 +112,11 @@ impl<'a> Parser<'a>
             Token::Identifier(id) => 
             {
                 let id = id.clone();
-                
-                if id == "match" // check to see if we have a match statement
+    
+                if id == "match" 
                 { 
-                    self.next_token(); // consume the 'match'
-                    self.parse_match(); // now do the parsing action
+                    self.next_token();
+                    return self.parse_match();
                 }
                 self.next_token();
                 Some(Expr::Identifier(id))
@@ -128,6 +130,44 @@ impl<'a> Parser<'a>
                 }
                 expr
             }
+
+            Token::Char('\\') => {
+                self.parse_lambda()
+            }
+            
+            // bear with me for this section...I do want to organize this, but at the moment, Rust has a weird way of handling submodules and it'll just be a rat's nest of issues I would have to unravel
+            Token::ReserveTok(ReservedToken::If) => {
+                self.next_token();
+                let cond = self.parse_expr(Precedence::Lowest)?;
+                
+                if self.current_token != Token::ReserveTok(ReservedToken::Then) {
+                    return None;
+                }
+                self.next_token();
+                let then_expr = self.parse_expr(Precedence::Lowest)?;
+                
+                if self.current_token != Token::ReserveTok(ReservedToken::Else) {
+                    return None;
+                }
+                self.next_token();
+                let else_expr = self.parse_expr(Precedence::Lowest)?;
+                
+                Some(Expr::If(Box::new(cond), Box::new(then_expr), Box::new(else_expr)))
+            }
+
+            Token::ReserveTok(ReservedToken::Let) => {
+                return self.parse_let_expression();
+            }
+
+            Token::ReserveTok(ReservedToken::True) => {
+                self.next_token();
+                Some(Expr::Bool(true))
+            },
+            Token::ReserveTok(ReservedToken::False) => {
+                self.next_token();
+                Some(Expr::Bool(false))
+            },
+
             _ => None,
         }
     }
@@ -140,20 +180,23 @@ impl<'a> Parser<'a>
             Token::Char('*') => BinaryOp::Multiply,
             Token::Char('/') => BinaryOp::Divide,
             Token::Char('%') => BinaryOp::Modulo,
+            Token::DoubleEquals => BinaryOp::Equal,
+            Token::Char('<') => BinaryOp::LessThan,
+            Token::Char('>') => BinaryOp::GreaterThan,
 
             _ => return None,
         };
 
+        let token_precedence = Precedence::from_token(&self.current_token);
         self.next_token(); // consumerator
 
-        let right = self.parse_expr(precedence)?;
+
+        let right = self.parse_expr(token_precedence)?;
         Some(Expr::BinaryOp(Box::new(left), binary_op, Box::new(right)))
     }
 
     fn parse_lambda(&mut self) -> Option<Expr> 
-    {
-        self.next_token();
-    
+    {    
         let mut params = Vec::new();
         while let Token::Identifier(param) = &self.current_token 
         {
@@ -266,6 +309,70 @@ impl<'a> Parser<'a>
             }
         }
         None
+    }
+
+    fn parse_let_expression(&mut self) -> Option<Expr> {
+        self.next_token(); // consume 'let'
+    
+        let mut bindings: Vec<(String, Expr)> = Vec::new();
+    
+        loop {
+            if self.current_token == Token::ReserveTok(ReservedToken::In) 
+                || self.current_token == Token::Eof {
+                break;
+            }
+            
+            let name = if let Token::Identifier(n) = &self.current_token {
+                n.clone()
+            } else {
+                break;
+            };
+
+            self.next_token();
+    
+            let mut params = Vec::new();
+            while let Token::Identifier(param) = &self.current_token {
+                params.push(param.clone());
+                self.next_token();
+            }
+    
+            if self.current_token != Token::Equals {
+                return None;
+            }
+            self.next_token(); // consume '='
+    
+            let mut rhs = self.parse_expr(Precedence::Lowest)?;
+            if !params.is_empty() {
+                rhs = Expr::Lambda(params, Box::new(rhs));
+            }
+            
+            bindings.push((name, rhs));
+    
+            if self.current_token == Token::Char(';') {
+                self.next_token();
+                continue; // optional
+            }
+
+            if self.current_token == Token::ReserveTok(ReservedToken::In) 
+                || self.current_token == Token::Eof {
+                break;
+            }
+
+            if !matches!(self.current_token, Token::Identifier(_)) {
+                break;
+            }
+        }
+    
+        // Parse 'in' body
+        if self.current_token == Token::ReserveTok(ReservedToken::In) {
+            self.next_token();
+            let body = self.parse_expr(Precedence::Lowest)?;
+            Some(Expr::Let(bindings, Box::new(body)))
+        } else {
+            // No 'in', treat last binding as body
+            let last = bindings.pop()?;
+            Some(Expr::Let(bindings, Box::new(last.1)))
+        }
     }
 
     fn current_token_precedence(&self) -> Option<Precedence> 

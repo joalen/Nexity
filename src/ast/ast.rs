@@ -124,10 +124,19 @@ impl Expr {
 
             Expr::Let(bindings, body) => {
                 let mut local_env = env.clone();
+                for (name, _) in bindings {
+                    local_env.insert(name.clone(), Value::Bool(false)); // dummy placeholder
+                }
+            
+                // 2. Evaluate each binding in the environment containing placeholders
+                let mut evaluated_bindings = HashMap::new();
                 for (name, expr) in bindings {
                     let value = expr.evaluate(&mut local_env)?;
-                    local_env.insert(name.clone(), value);
+                    local_env.insert(name.clone(), value.clone());
+                    evaluated_bindings.insert(name.clone(), value);
                 }
+            
+                // 3. Evaluate the body using the fully populated local environment
                 body.evaluate(&mut local_env)
             }
 
@@ -195,6 +204,8 @@ impl Expr {
                     Err("Division by zero".into())
                 }
             }
+            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Equal) => Ok(Value::Bool(lhs == rhs)),
+            (Value::Bool(lhs), Value::Bool(rhs), BinaryOp::Equal) => Ok(Value::Bool(lhs == rhs)),
             _ => Err("Type error in binary operation".into()),
         }
     }

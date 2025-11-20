@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, PartialEq)]
 pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
-    Of, Module, Newtype, Then, Type, Where,
+    Of, Module, Newtype, Then, Type, Where, Match, True, False
 }
 
 #[derive(Debug, PartialEq)]
@@ -17,6 +17,7 @@ pub enum Token {
     Equals,
     Arrow,
     Pipe,
+    DoubleEquals,
 }
 
 pub struct Lexer<'a> {
@@ -70,30 +71,71 @@ impl<'a> Lexer<'a> {
         match current_char {
             Some(c) if c.is_alphabetic() => self.lex_identifier(),
             Some(c) if c.is_digit(10) || c == '.' => self.lex_number(),
+            
+            // comments
             Some('#') => {
-                loop {
-                    let c = {
-                        let current_char = self.current_char.lock().unwrap();
-                        *current_char
-                    };
-
-                    if let Some(c) = c {
-                        if c == '\n' || c == '\r' {
-                            break;
-                        }
-                        self.next_char();
-                    } else {
-                        break;
-                    }
+                while let Some(ch) = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    if ch == '\n' || ch == '\r' { break; }
+                    self.next_char();
                 }
                 self.next_char();
                 self.get_token()
             }
+
+            // pipe symbol
+            Some('|') => {
+                self.next_char();
+                Token::Pipe
+            }
+
+            // arrow notation
+            Some('-') => {
+                self.next_char();
+                if let Some('>') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::Arrow
+                } else {
+                    Token::Char('-')
+                }
+            }
+
+            // the double equals 
+            Some('=') => {
+                self.next_char();
+                if let Some('=') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::DoubleEquals
+                } else {
+                    Token::Equals
+                }
+            }
+
+            // comparisons
+            Some('<') => {
+                self.next_char();
+                Token::Char('<')
+            }
+
+            Some('>') => {
+                self.next_char();
+                Token::Char('>')
+            }
+
             Some(c) => {
                 self.next_char();
                 Token::Char(c)
             }
-            None => Token::Eof,
+            
+            None => Token::Eof, // mark end of file
         }
     }
 
@@ -136,6 +178,10 @@ impl<'a> Lexer<'a> {
             "Data" => Token::ReserveTok(ReservedToken::Data),
             "Deriving" => Token::ReserveTok(ReservedToken::Deriving),
             "Do" => Token::ReserveTok(ReservedToken::Do),
+            "let" => Token::ReserveTok(ReservedToken::Let),
+            "in" => Token::ReserveTok(ReservedToken::In),
+            "True" => Token::ReserveTok(ReservedToken::True),
+            "False" => Token::ReserveTok(ReservedToken::False),
             _ => Token::Identifier(identifier),
         }
     }
