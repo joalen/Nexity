@@ -153,6 +153,7 @@ impl Expr
 
             Expr::Identifier(name) => 
             { 
+                println!("Looking up '{}', env keys: {:?}", name, env.keys());
                 let scheme = env.get(name).ok_or_else(|| format!("Unbound identifier: {}", name))?;
                 Ok(instantiate(scheme, type_var_gen))
             }
@@ -220,23 +221,28 @@ impl Expr
 
             Expr::Lambda(params, body) =>
             { 
-                let mut local_env = env.clone();
                 let mut param_types = Vec::new();
-
+            
                 for param in params
                 { 
                     let ty = type_var_gen.fresh();
-                    local_env.insert(param.clone(), 
+                    env.insert(param.clone(), 
                         TypeScheme { type_vars: vec![], ty: ty.clone() });
                     
                     param_types.push(ty);
                 }
                 
-                let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
+                let body_ty = body.infer_type(env, type_var_gen)?;
+                
+                // Clean up parameters from env
+                for param in params {
+                    env.remove(param);
+                }
+                
                 let func_type = param_types.into_iter().rev().fold(body_ty, |acc, ty| {
                     Type::Function(Box::new(ty), Box::new(acc))
                 });
-
+            
                 Ok(func_type)
             }
 
@@ -274,9 +280,14 @@ impl Expr
                 // Step 4: Generalize each binding and update the outer environment
                 for (name, _) in bindings.iter() {
                     let final_ty = apply_substitution(placeholders.get(name).unwrap(), &subst);
-                    env.insert(name.clone(), generalize(env, &final_ty));
+                    let scheme = generalize(&local_env, &final_ty);
+                    local_env.insert(name.clone(), scheme.clone());
                 }
             
+                for (name, _) in bindings {
+                    env.insert(name.clone(), local_env.get(name).unwrap().clone());
+                }
+                
                 // Step 5: Infer the body type
                 let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
                 Ok(apply_substitution(&body_ty, &subst))
@@ -310,7 +321,7 @@ impl Expr
                 let func_ty_after = apply_substitution(&func_ty, &subst);
                 let arg_ty_after = apply_substitution(&arg_ty, &subst);
             
-                Ok(result_ty)
+                Ok(apply_substitution(&result_ty, &subst))
             }
 
             Expr::Match(scrutinee, arms) => 
@@ -352,6 +363,12 @@ impl Expr
                 Ok(first)
             }
 
+            Expr::Annotated(expr, ann_ty) => {
+                let inferred_ty = expr.infer_type(env, type_var_gen)?;
+                let subst = unify(&inferred_ty, ann_ty)?;
+                Ok(apply_substitution(ann_ty, &subst))
+            }
+
             _ => Err("Expression not supported".into()),
         }
     }
@@ -378,9 +395,12 @@ fn free_type_vars_in_env(env: &TypeEnv) -> HashSet<String> {
 pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> (Type, Vec<(String, Type)>) 
 {
     match pattern {
-        Pattern::Literal(_) => {
-            // You are using Number literals = Float
-            (Type::Float, vec![])
+        Pattern::Literal(n) => {
+            if n.fract() == 0.0 {
+                (Type::Int, vec![])
+            } else {
+                (Type::Float, vec![])
+            }
         }
 
         Pattern::Variable(name) => {

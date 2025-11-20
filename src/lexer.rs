@@ -19,6 +19,7 @@ pub enum Token {
     Arrow,
     Pipe,
     DoubleEquals,
+    DoubleColon,
 }
 
 pub struct Lexer<'a> {
@@ -129,6 +130,21 @@ impl<'a> Lexer<'a> {
             Some('>') => {
                 self.next_char();
                 Token::Char('>')
+            }
+
+            // the double colon
+            Some(':') => {
+                self.next_char();
+
+                if let Some(':') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::DoubleEquals
+                } else {
+                    Token::Char(':')
+                }
             }
 
             Some(c) => {

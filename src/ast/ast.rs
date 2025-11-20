@@ -44,6 +44,7 @@ pub enum Expr {
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
+    Annotated(Box<Expr>, Type),
 }
 
 // Binary operations supported in the language
@@ -174,8 +175,9 @@ impl Expr {
                 }
             }
 
-            // future release
-            /*Expr::Match(expr, cases) => {
+            Expr::Annotated(expr, _) => expr.evaluate(env),
+
+            Expr::Match(expr, cases) => {
                 let value = expr.evaluate(env)?;
                 for (pattern, guard, result) in cases {
                     if self.matches_pattern(&value, pattern, env) {
@@ -188,9 +190,7 @@ impl Expr {
                     }
                 }
                 Err("No matching pattern found".into())
-            }*/
-
-
+            }
 
             _ => Err("Unsupported expression".into()),
         }

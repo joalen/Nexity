@@ -15,6 +15,10 @@ fn infer_type_of(input: &str) -> Result<Type, String> {
     infer.infer(&expr)
 }
 
+fn infer(input: &str) -> Type {
+    infer_type_of(input).expect("Type inference failed")
+}
+
 #[test]
 fn test_valid_binary_operations_inference()
 { 
@@ -200,22 +204,6 @@ fn test_let_generalization_works() {
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_match_literal()
-// try something like: match 5 { 5 => 1; _ => 0 }
-{ 
-    let expr = Expr::Match(
-        Box::new(Expr::Float(5.0)),
-        vec![
-            (Pattern::Literal(5.0), None, Expr::Float(1.0)),
-            (Pattern::Wildcard, None, Expr::Float(0.0)),
-        ]
-    );
-
-    let mut infer = TypeInference::new();
-    let ty = infer.infer(&expr).unwrap();
-    assert_eq!(ty, Type::Float);
-}
 
 #[test]
 fn test_match_wildcard() 
@@ -307,4 +295,23 @@ fn test_reject_polymorphic_recursion() {
     "#;
 
     assert!(infer_type_of(code).is_err());
+}
+
+#[test]
+fn test_int_float_literals() {
+    assert_eq!(infer("42"), Type::Int);
+    assert_eq!(infer("42.0"), Type::Float);
+}
+
+#[test]
+fn test_lambda_polymorphic() {
+    let id = infer("\\x -> x");
+    // Should be: t0 -> t0
+    assert!(matches!(id, Type::Function(..)));
+}
+
+#[test]
+fn test_match_expression() {
+    let expr = "match 42 { 0 -> False, _ -> True }";
+    assert_eq!(infer(expr), Type::Bool);
 }

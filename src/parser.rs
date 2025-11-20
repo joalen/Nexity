@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, ReservedToken, Token};
-use crate::ast::ast::{Expr, BinaryOp, Pattern};
+use crate::ast::ast::{BinaryOp, Expr, Pattern, Type};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -70,6 +70,13 @@ impl<'a> Parser<'a>
             left = self.parse_infix(left, op_precedence)?;
         }
 
+        // look for explicit type annotations
+        if self.current_token == Token::DoubleColon {
+            self.next_token();
+            let ty = self.parse_type()?;
+            left = Expr::Annotated(Box::new(left), ty);
+        }
+
         Some(left)
     }
 
@@ -137,6 +144,7 @@ impl<'a> Parser<'a>
             }
 
             Token::Char('\\') => {
+                self.next_token();
                 self.parse_lambda()
             }
             
@@ -304,7 +312,7 @@ impl<'a> Parser<'a>
 
     fn parse_application(&mut self, func: Expr) -> Option<Expr> 
     {
-        let arg = self.parse_expr(Precedence::Lowest)?;
+        let arg = self.parse_prefix()?;
         Some(Expr::Application(Box::new(func), Box::new(arg)))
     }
 
@@ -351,7 +359,7 @@ impl<'a> Parser<'a>
             }
             self.next_token(); // consume '='
     
-            let mut rhs = self.parse_expr(Precedence::Lowest)?;
+            let mut rhs = self.parse_expr(Precedence::Application)?;
             if !params.is_empty() {
                 rhs = Expr::Lambda(params, Box::new(rhs));
             }
@@ -382,6 +390,30 @@ impl<'a> Parser<'a>
             // No 'in', treat last binding as body
             let last = bindings.pop()?;
             Some(Expr::Let(bindings, Box::new(last.1)))
+        }
+    }
+
+    fn parse_type(&mut self) -> Option<Type> {
+        match &self.current_token {
+            Token::Identifier(name) => {
+                let ty = match name.as_str() {
+                    "Int" => Type::Int,
+                    "Float" => Type::Float,
+                    "Bool" => Type::Bool,
+                    "Char" => Type::Char,
+                    _ => Type::Custom(name.clone()),
+                };
+                self.next_token();
+                
+                // Handle function types: a -> b
+                if self.current_token == Token::Arrow {
+                    self.next_token();
+                    let ret = self.parse_type()?;
+                    return Some(Type::Function(Box::new(ty), Box::new(ret)));
+                }
+                Some(ty)
+            }
+            _ => None,
         }
     }
 
