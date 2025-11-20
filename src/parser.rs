@@ -104,11 +104,16 @@ impl<'a> Parser<'a>
 
         match token 
         {
-            Token::Number(n) => 
-            {
+            Token::IntLiteral(n) => {
                 self.next_token();
-                Some(Expr::Number(n))
+                Some(Expr::Int(n))
             }
+            
+            Token::FloatLiteral(n) => {
+                self.next_token();
+                Some(Expr::Float(n))
+            }
+
             Token::Identifier(id) => 
             {
                 let id = id.clone();
@@ -218,11 +223,16 @@ impl<'a> Parser<'a>
     { 
         match &self.current_token 
         {
-            Token::Number(n) =>  
-            { 
-                let v = *n; 
+            Token::IntLiteral(n) => {
+                let n = *n;
                 self.next_token();
-                Some(Pattern::Literal(v))
+                Some(Pattern::Literal(n as f64))
+            }
+            
+            Token::FloatLiteral(n) => {
+                let n = *n;
+                self.next_token();
+                Some(Pattern::Literal(n))
             }
 
             Token::Identifier(name) => 

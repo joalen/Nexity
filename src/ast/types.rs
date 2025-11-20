@@ -146,7 +146,8 @@ impl Expr
     { 
         match self
         {
-            Expr::Number(_) => Ok(Type::Float),
+            Expr::Int(_) => Ok(Type::Int),
+            Expr::Float(_) => Ok(Type::Float),
             Expr::Bool(_) => Ok(Type::Bool),
             Expr::String(_) => Ok(Type::Custom("String".to_string())),
 

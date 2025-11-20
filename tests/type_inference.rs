@@ -22,26 +22,26 @@ fn test_valid_binary_operations_inference()
 
     let cases = vec![ 
         (Expr::BinaryOp(
-            Box::new(Expr::Number(5.0)),
+            Box::new(Expr::Int(5)),
             nexity::ast::ast::BinaryOp::Add,
-            Box::new(Expr::Number(3.0))
-        ), Type::Float),
+            Box::new(Expr::Int(3))
+        ), Type::Int),
     
         (Expr::BinaryOp(
-            Box::new(Expr::Number(10.0)),
+            Box::new(Expr::Int(1)),
             nexity::ast::ast::BinaryOp::Subtract,
-            Box::new(Expr::Number(4.0))
-        ), Type::Float),
+            Box::new(Expr::Int(4))
+        ), Type::Int),
     
         (Expr::BinaryOp(
-            Box::new(Expr::Number(24.0)),
+            Box::new(Expr::Float(24.5)),
             nexity::ast::ast::BinaryOp::Multiply,
-            Box::new(Expr::Number(2.0))
+            Box::new(Expr::Float(2.1111))
         ), Type::Float),
         (Expr::BinaryOp(
-            Box::new(Expr::Number(20.0)),
+            Box::new(Expr::Float(20.0)),
             nexity::ast::ast::BinaryOp::Divide,
-            Box::new(Expr::Number(5.0))
+            Box::new(Expr::Float(5.0))
         ), Type::Float),
     ];
 
@@ -58,9 +58,9 @@ fn test_valid_comparison_operations()
     let mut type_infer = TypeInference::new();
 
     let expr = Expr::BinaryOp(
-        Box::new(Expr::Number(42.0)),
+        Box::new(Expr::Int(42)),
         BinaryOp::Equal,
-        Box::new(Expr::Number(25.0)), 
+        Box::new(Expr::Int(25)), 
     );
 
     let inferred_type = type_infer.infer(&expr).unwrap();
@@ -81,7 +81,7 @@ fn test_polymorphic_identity_after_let() {
         )],
         Box::new(Expr::Application(
             Box::new(Expr::Identifier("id".to_string())),
-            Box::new(Expr::Number(5.0))
+            Box::new(Expr::Float(5.0))
         ))
     );
     
@@ -185,7 +185,7 @@ fn test_let_generalization_works() {
                 "five".to_string(),
                 Expr::Application(
                     Box::new(Expr::Identifier("id".to_string())),
-                    Box::new(Expr::Number(5.0))
+                    Box::new(Expr::Float(5.0))
                 )
             )],
             Box::new(Expr::Application(
@@ -205,10 +205,10 @@ fn test_match_literal()
 // try something like: match 5 { 5 => 1; _ => 0 }
 { 
     let expr = Expr::Match(
-        Box::new(Expr::Number(5.0)),
+        Box::new(Expr::Float(5.0)),
         vec![
-            (Pattern::Literal(5.0), None, Expr::Number(1.0)),
-            (Pattern::Wildcard, None, Expr::Number(0.0)),
+            (Pattern::Literal(5.0), None, Expr::Float(1.0)),
+            (Pattern::Wildcard, None, Expr::Float(0.0)),
         ]
     );
 
@@ -224,7 +224,7 @@ fn test_match_wildcard()
     let expr = Expr::Match(
         Box::new(Expr::Bool(true)),
         vec![
-            (Pattern::Wildcard, None, Expr::Number(10.0))
+            (Pattern::Wildcard, None, Expr::Float(10.0))
         ]
     );
 
@@ -237,9 +237,9 @@ fn test_match_arm_type_mismatch_fails()
     // Should fail: match x { _ => 1, _ => true }
 { 
     let expr = Expr::Match(
-        Box::new(Expr::Number(5.0)),
+        Box::new(Expr::Int(5)),
         vec![
-            (Pattern::Wildcard, None, Expr::Number(1.0)),
+            (Pattern::Wildcard, None, Expr::Int(1)),
             (Pattern::Wildcard, None, Expr::Bool(true)),
         ]
     );
@@ -255,12 +255,12 @@ fn test_match_guard_must_be_bool()
 // guard is '5' -> not a boolean
 { 
     let expr = Expr::Match(
-        Box::new(Expr::Number(10.0)),
+        Box::new(Expr::Int(1)),
         vec![
             (
                 Pattern::Variable("x".into()),
-                Some(Expr::Number(5.0)), // NOT boolean
-                Expr::Number(0.0)
+                Some(Expr::Float(5.0)), // NOT boolean
+                Expr::Int(0)
             )
         ]
     );
@@ -275,7 +275,7 @@ fn test_match_guard_must_be_bool()
 fn test_match_generalization_with_identity()
 { 
     let expr = Expr::Match(
-        Box::new(Expr::Number(10.0)),
+        Box::new(Expr::Int(10)),
         vec![(
             Pattern::Variable("id".into()),
             None,
@@ -284,7 +284,7 @@ fn test_match_generalization_with_identity()
                     "five".into(),
                     Expr::Application(
                         Box::new(Expr::Identifier("id".into())),
-                        Box::new(Expr::Number(5.0))
+                        Box::new(Expr::Float(5.0))
                     )
                 )],
                 Box::new(Expr::Application(

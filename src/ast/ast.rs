@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
-    Number(f64),
+    IntLiteral(i64),
+    FloatLiteral(f64),
     Bool(bool),
     Function(Vec<String>, Box<Expr>, Env), 
 }
@@ -23,7 +24,8 @@ pub enum Type {
 
 #[derive(Debug, PartialEq, Clone)] 
 pub enum Expr {
-    Number(f64),
+    Int(i64),
+    Float(f64),
     Identifier(String),
     String(String),
     BinaryOp(Box<Expr>, BinaryOp, Box<Expr>),
@@ -86,7 +88,8 @@ impl Expr {
 
     fn matches_pattern(&self, value: &Value, pattern: &Pattern, env: &mut Env) -> bool {
         match (value, pattern) {
-            (Value::Number(n), Pattern::Literal(p)) => n == p,
+            (Value::IntLiteral(n), Pattern::Literal(p)) => (*n as f64) == *p,
+            (Value::FloatLiteral(n), Pattern::Literal(p)) => *n == *p,
             (Value::Bool(b), Pattern::Literal(p)) => *b == (*p != 0.0),
             (v, Pattern::Variable(name)) => {
                 env.insert(name.clone(), v.clone());
@@ -99,7 +102,8 @@ impl Expr {
 
     pub fn evaluate(&self, env: &mut Env) -> Result<Value, String> {
         match self {
-            Expr::Number(n) => Ok(Value::Number(*n)),
+            Expr::Int(n)   => Ok(Value::IntLiteral(*n)),
+            Expr::Float(n) => Ok(Value::FloatLiteral(*n)),
             Expr::Bool(b) => Ok(Value::Bool(*b)),
             Expr::Identifier(name) => {
                 env.get(name)
@@ -192,29 +196,68 @@ impl Expr {
         }
     }
 
-    fn eval_binary_op(&self, left: Value, op: &BinaryOp, right: Value) -> Result<Value, String> {
-        match (left, right, op) {
-            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Add) => Ok(Value::Number(lhs + rhs)),
-            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Subtract) => Ok(Value::Number(lhs - rhs)),
-            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Multiply) => Ok(Value::Number(lhs * rhs)),
-            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Divide) => {
-                if rhs != 0.0 {
-                    Ok(Value::Number(lhs / rhs))
-                } else {
-                    Err("Division by zero".into())
-                }
-            }
-            (Value::Number(lhs), Value::Number(rhs), BinaryOp::Equal) => Ok(Value::Bool(lhs == rhs)),
-            (Value::Bool(lhs), Value::Bool(rhs), BinaryOp::Equal) => Ok(Value::Bool(lhs == rhs)),
-            _ => Err("Type error in binary operation".into()),
+    fn promote(lhs: Value, rhs: Value) -> (Value, Value) {
+        match (lhs, rhs) {
+            (Value::IntLiteral(a), Value::IntLiteral(b)) =>
+                (Value::FloatLiteral(a as f64), Value::FloatLiteral(b as f64)),
+    
+            (Value::IntLiteral(a), Value::FloatLiteral(b)) =>
+                (Value::FloatLiteral(a as f64), Value::FloatLiteral(b)),
+    
+            (Value::FloatLiteral(a), Value::IntLiteral(b)) =>
+                (Value::FloatLiteral(a), Value::FloatLiteral(b as f64)),
+    
+            other => other,
         }
     }
+
+    fn eval_binary_op(&self, left: Value, op: &BinaryOp, right: Value) -> Result<Value, String> {
+        use Value::*;
+    
+        match op {
+            BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
+                // Promote numeric values (Int → Float when needed)
+                let (l, r) = Expr::promote(left, right);
+    
+                match (l, r, op) {
+                    (IntLiteral(a), IntLiteral(b), BinaryOp::Add) => Ok(IntLiteral(a + b)),
+                    (IntLiteral(a), IntLiteral(b), BinaryOp::Subtract) => Ok(IntLiteral(a - b)),
+                    (IntLiteral(a), IntLiteral(b), BinaryOp::Multiply) => Ok(IntLiteral(a * b)),
+                    (IntLiteral(_), IntLiteral(0), BinaryOp::Divide) => Err("Divide by zero".into()),
+                    (IntLiteral(a), IntLiteral(b), BinaryOp::Divide) => Ok(IntLiteral(a / b)),
+    
+                    (FloatLiteral(a), FloatLiteral(b), BinaryOp::Add) => Ok(FloatLiteral(a + b)),
+                    (FloatLiteral(a), FloatLiteral(b), BinaryOp::Subtract) => Ok(FloatLiteral(a - b)),
+                    (FloatLiteral(a), FloatLiteral(b), BinaryOp::Multiply) => Ok(FloatLiteral(a * b)),
+                    (FloatLiteral(_), FloatLiteral(b), BinaryOp::Divide) if b == 0.0 =>
+                        Err("Divide by zero".into()),
+                    (FloatLiteral(a), FloatLiteral(b), BinaryOp::Divide) =>
+                        Ok(FloatLiteral(a / b)),
+    
+                    _ => Err("Type error".into()),
+                }
+            }
+    
+            BinaryOp::Equal => {
+                Ok(Bool(match (left, right) {
+                    (IntLiteral(a), IntLiteral(b)) => a == b,
+                    (FloatLiteral(a), FloatLiteral(b)) => a == b,
+                    (Bool(a), Bool(b)) => a == b,
+                    _ => false,
+                }))
+            }
+    
+            _ => Err("Unsupported op".into()),
+        }
+    }
+    
 
     // Check if a value is truthy
     fn is_truthy(&self, value: &Value) -> bool {
         match value {
             Value::Bool(b) => *b,
-            Value::Number(n) => *n != 0.0,
+            Value::IntLiteral(n) => *n != 0,
+            Value::FloatLiteral(n) => *n != 0.0,
             _ => false,
         }
     }

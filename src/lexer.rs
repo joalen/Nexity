@@ -1,18 +1,19 @@
 use std::str::Chars;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
     Of, Module, Newtype, Then, Type, Where, Match, True, False
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Eof,
     ReserveTok(ReservedToken),
     Identifier(String),
-    Number(f64),
+    IntLiteral(i64),
+    FloatLiteral(f64),
     Char(char),
     Equals,
     Arrow,
@@ -188,6 +189,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_number(&mut self) -> Token {
         let mut num_str = String::new();
+        let mut has_decimal = false;
 
         loop {
             let c = {
@@ -196,20 +198,18 @@ impl<'a> Lexer<'a> {
             };
 
             if let Some(c) = c {
+                if c == '.' { has_decimal = true; }
                 if c.is_digit(10) || c == '.' {
                     num_str.push(c);
                     self.next_char();
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
+                } else { break; }
+            } else { break; }
         }
 
-        match num_str.parse::<f64>() {
-            Ok(num_val) => Token::Number(num_val),
-            Err(_) => Token::Number(0.0),
+        if has_decimal {
+            Token::FloatLiteral(num_str.parse::<f64>().unwrap_or(0.0))
+        } else {
+            Token::IntLiteral(num_str.parse::<i64>().unwrap_or(0))
         }
     }
 }

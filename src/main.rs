@@ -10,7 +10,7 @@ use crate::ast::ast::{Expr};
 
 fn main() {
     let mut type_infer = TypeInference::new();
-    let expr = Expr::Number(42.0);
+    let expr = Expr::Float(42.0);
 
     // check for a simple number
     match type_infer.infer(&expr) {
@@ -27,7 +27,7 @@ fn main() {
     // constant lambda
     let const_expr = Expr::Lambda( 
         vec!["x".to_string(), "y".to_string()],
-        Box::new(Expr::Number(42.0))
+        Box::new(Expr::Int(42))
     );
 
     let id_type = type_infer.infer(&id_expr).unwrap();
