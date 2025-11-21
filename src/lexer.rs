@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, PartialEq, Clone)]
 pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
-    Of, Module, Newtype, Then, Type, Where, Match, True, False
+    Of, Module, Newtype, Then, Type, Where, Match, True, False, Class
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -141,7 +141,7 @@ impl<'a> Lexer<'a> {
                     *current_char
                 } {
                     self.next_char();
-                    Token::DoubleEquals
+                    Token::DoubleColon
                 } else {
                     Token::Char(':')
                 }

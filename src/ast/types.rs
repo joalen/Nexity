@@ -1,15 +1,37 @@
-use crate::ast::ast::{BinaryOp, Pattern};
+use crate::ast::ast::{BinaryOp, Constraint, Pattern};
 use crate::ast::ast::{Expr, Type};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::vec;
 
 pub type TypeEnv = HashMap<String, TypeScheme>;
 pub type Substitution = std::collections::HashMap<String, Type>;
+
+pub struct ClassEnv {
+    pub classes: HashMap<String, ClassDef>,
+    pub instances: Vec<Instance>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassDef {
+    pub name: String,
+    pub param: String,
+    pub methods: HashMap<String, Type>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Instance {
+    pub class_name: String,
+    pub ty: Type,
+    pub methods: HashMap<String, Expr>,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct TypeScheme
 { 
     pub type_vars: Vec<String>,
+    pub constraints: Vec<Constraint>,
     pub ty: Type,
 }
 
@@ -121,6 +143,7 @@ pub struct TypeInference
 { 
     pub env: TypeEnv, 
     pub type_var_gen: TypeVarGenerator,
+    pub class_env: ClassEnv,
 }
 
 impl TypeInference
@@ -131,10 +154,14 @@ impl TypeInference
         { 
             env: HashMap::new(), 
             type_var_gen: TypeVarGenerator::new(),
+            class_env: ClassEnv {
+                classes: HashMap::new(),
+                instances: Vec::new(),
+            },
         }
     }
 
-    pub fn infer(&mut self, expr: &Expr) -> Result<Type, String> 
+    pub fn infer(&mut self, expr: &Expr) -> Result<(Type, Vec<Constraint>), String> 
     { 
         expr.infer_type(&mut self.env, &mut self.type_var_gen)
     }
@@ -142,234 +169,233 @@ impl TypeInference
 
 impl Expr
 { 
-    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator) -> Result<Type, String>
-    { 
-        match self
-        {
-            Expr::Int(_) => Ok(Type::Int),
-            Expr::Float(_) => Ok(Type::Float),
-            Expr::Bool(_) => Ok(Type::Bool),
-            Expr::String(_) => Ok(Type::Custom("String".to_string())),
+    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator) -> Result<(Type, Vec<Constraint>), String> { 
+    match self
+    {
+        Expr::Int(_) => Ok((Type::Int, vec![])),
+        Expr::Float(_) => Ok((Type::Float, vec![])),
+        Expr::Bool(_) => Ok((Type::Bool, vec![])),
+        Expr::String(_) => Ok((Type::Custom("String".to_string()), vec![])),
 
-            Expr::Identifier(name) => 
-            { 
-                println!("Looking up '{}', env keys: {:?}", name, env.keys());
-                let scheme = env.get(name).ok_or_else(|| format!("Unbound identifier: {}", name))?;
-                Ok(instantiate(scheme, type_var_gen))
-            }
-
-            Expr::BinaryOp(lhs, op, rhs) =>
-            { 
-                let left_ty = lhs.infer_type(env, type_var_gen)?;
-                let right_ty = rhs.infer_type(env, type_var_gen)?;
-                
-                match op
-                { 
-                    // arithmetic and numerical operations
-                    BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide
-                    | BinaryOp::Modulo => 
-                    { 
-                        unify(&left_ty, &right_ty)?; // unify operands together
-                        let numeric_ty = type_var_gen.fresh(); // fresh var for result
-
-                        match (&left_ty, &right_ty) {
-                            (Type::Float, Type::Float) => Ok(Type::Float),
-                            (Type::Int, Type::Int) => Ok(Type::Int),
-                            (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Ok(Type::Float),
-                            (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Ok(Type::Int),
-                            (Type::TypeVar(_), Type::TypeVar(_)) => {
-                                // Both are type vars - default to Float
-                                Ok(Type::Float)
-                            }
-                            _ => Err("Arithmetic operations require numeric types on both sides".into())
-                        }
-                    }
-
-                    // logic operations 
-                    BinaryOp::And | BinaryOp::Or => 
-                    { 
-                        // Unify both with Bool type
-                        unify(&left_ty, &Type::Bool)?;
-                        unify(&right_ty, &Type::Bool)?;
-                        Ok(Type::Bool)
-                    }
-
-                    // equality and comparison 
-                    BinaryOp::Equal | BinaryOp::NotEqual =>
-                    { 
-                        unify(&left_ty, &right_ty)?;
-                        Ok(Type::Bool)
-                    }
-
-                    BinaryOp::LessThan | BinaryOp::GreaterThan | BinaryOp::LessEqual | BinaryOp::GreaterEqual =>
-                    { 
-                        unify(&left_ty, &right_ty)?;
-
-                        match (&left_ty, &right_ty) {
-                            (Type::Float, Type::Float) => Ok(Type::Bool),
-                            (Type::Int, Type::Int) => Ok(Type::Bool),
-                            (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Ok(Type::Bool),
-                            (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Ok(Type::Bool),
-                            (Type::TypeVar(_), Type::TypeVar(_)) => Ok(Type::Bool),
-                            _ => Err("Comparison operations require numeric types on both sides".into())
-                        }
-                    }
-
-                    _ => Err(format!("Unsupported binary operation: {:?}", op).into()),
-                }
-            }
-
-            Expr::Lambda(params, body) =>
-            { 
-                let mut param_types = Vec::new();
+        Expr::Identifier(name) => 
+        { 
+            let scheme = env.get(name)
+                .ok_or_else(|| format!("Unbound identifier: {}", name))?;
+            let ty = instantiate(scheme, type_var_gen);
             
-                for param in params
+            Ok((ty, scheme.constraints.clone()))
+        }
+
+        Expr::BinaryOp(lhs, op, rhs) =>
+        { 
+            let (left_ty, mut left_constraints) = lhs.infer_type(env, type_var_gen)?;
+            let (right_ty, right_constraints) = rhs.infer_type(env, type_var_gen)?;
+            left_constraints.extend(right_constraints);
+            
+            match op
+            { 
+                BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide
+                | BinaryOp::Modulo => 
                 { 
-                    let ty = type_var_gen.fresh();
-                    env.insert(param.clone(), 
-                        TypeScheme { type_vars: vec![], ty: ty.clone() });
+                    unify(&left_ty, &right_ty)?;
                     
-                    param_types.push(ty);
+                    let result_ty = match (&left_ty, &right_ty) {
+                        (Type::Float, Type::Float) => Type::Float,
+                        (Type::Int, Type::Int) => Type::Int,
+                        (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Type::Float,
+                        (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Type::Int,
+                        (Type::TypeVar(_), Type::TypeVar(_)) => Type::Float,
+                        _ => return Err("Arithmetic operations require numeric types".into())
+                    };
+                    
+                    Ok((result_ty, left_constraints))
                 }
-                
-                let body_ty = body.infer_type(env, type_var_gen)?;
-                
-                // Clean up parameters from env
-                for param in params {
-                    env.remove(param);
-                }
-                
-                let func_type = param_types.into_iter().rev().fold(body_ty, |acc, ty| {
-                    Type::Function(Box::new(ty), Box::new(acc))
-                });
-            
-                Ok(func_type)
-            }
 
-            Expr::Let(bindings, body) => {
-                // Step 1: Create fresh type variables for each binding
-                let mut placeholders: HashMap<String, Type> = HashMap::new();
-                for (name, _) in bindings.iter() {
-                    let tv = type_var_gen.fresh();
-                    placeholders.insert(name.clone(), tv);
-                }
-            
-                // Step 2: Extend the environment with placeholders for mutual recursion
-                let mut local_env = env.clone();
-                for (name, tv) in placeholders.iter() {
-                    local_env.insert(
-                        name.clone(),
-                        TypeScheme { type_vars: vec![], ty: tv.clone() },
-                    );
-                }
-            
-                // Step 3: Infer the type of each RHS under the extended environment
-                let mut subst: Substitution = Substitution::new();
-                for (name, expr) in bindings.iter() {
-                    let inferred_ty = expr.infer_type(&mut local_env, type_var_gen)?;
-                    let tv = placeholders.get(name).unwrap();
-                    let s = unify(tv, &inferred_ty)?;
-                    subst = compose_substitutions(s, subst);
-            
-                    // Apply substitution to all types in the environment
-                    for (_, scheme) in local_env.iter_mut() {
-                        scheme.ty = apply_substitution(&scheme.ty, &subst);
-                    }
-                }
-            
-                // Step 4: Generalize each binding and update the outer environment
-                for (name, _) in bindings.iter() {
-                    let final_ty = apply_substitution(placeholders.get(name).unwrap(), &subst);
-                    let scheme = generalize(&local_env, &final_ty);
-                    local_env.insert(name.clone(), scheme.clone());
-                }
-            
-                for (name, _) in bindings {
-                    env.insert(name.clone(), local_env.get(name).unwrap().clone());
-                }
-                
-                // Step 5: Infer the body type
-                let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
-                Ok(apply_substitution(&body_ty, &subst))
-            }
-
-            Expr::If(cond, then_branch, else_branch) => 
-            {
-                let cond_ty = cond.infer_type(env, type_var_gen)?;
-                if cond_ty != Type::Bool {
-                    return Err("Condition in if-expression must be Bool".into());
-                }
-            
-                let then_ty = then_branch.infer_type(env, type_var_gen)?;
-                let else_ty = else_branch.infer_type(env, type_var_gen)?;
-            
-                unify(&then_ty, &else_ty)?;
-                Ok(then_ty)
-            }
-
-            Expr::Application(func, arg) => {
-                let func_ty = func.infer_type(env, type_var_gen)?;
-                let arg_ty = arg.infer_type(env, type_var_gen)?;
-                let result_ty = type_var_gen.fresh();
-                
-                let func_expected_ty = Type::Function(Box::new(arg_ty.clone()), Box::new(result_ty.clone()));
-            
-                // Perform unification and store the resulting substitution
-                let subst = unify(&func_ty, &func_expected_ty)?;
-                
-                // Apply the substitution to func_ty (or other types that were unified)
-                let func_ty_after = apply_substitution(&func_ty, &subst);
-                let arg_ty_after = apply_substitution(&arg_ty, &subst);
-            
-                Ok(apply_substitution(&result_ty, &subst))
-            }
-
-            Expr::Match(scrutinee, arms) => 
-            { 
-                let scrutinee_ty = scrutinee.infer_type(env, type_var_gen)?;
-                let mut arm_tys = Vec::new();
-
-                for (pattern, guard, body) in arms 
+                BinaryOp::And | BinaryOp::Or => 
                 { 
-                    let (par_ty, bindings) = infer_pattern(pattern, type_var_gen);
-                    unify(&scrutinee_ty, &par_ty)?;
-
-                    // extend to environment with generalized pattern bindings 
-                    let mut local_env = env.clone();
-
-                    for (name, ty) in bindings
-                    { 
-                        let scheme = generalize(env, &ty);
-                        local_env.insert(name, scheme);
-                    }
-
-                    // optional guards check
-                    if let Some(g) = guard 
-                    { 
-                        let guard_ty = g.infer_type(&mut local_env, type_var_gen)?;
-                        unify(&guard_ty, &Type::Bool)?;
-                    }
-
-                    let body_ty = body.infer_type(&mut local_env, type_var_gen)?;
-                    arm_tys.push(body_ty);
+                    unify(&left_ty, &Type::Bool)?;
+                    unify(&right_ty, &Type::Bool)?;
+                    Ok((Type::Bool, left_constraints))
                 }
 
-                // now unify all types
-                let first = arm_tys[0].clone();
-                for t in arm_tys.iter().skip(1) {
-                    unify(&first, t)?;
+                BinaryOp::Equal | BinaryOp::NotEqual =>
+                { 
+                    unify(&left_ty, &right_ty)?;
+                    
+                    left_constraints.push(Constraint {
+                        class: "Eq".to_string(),
+                        ty: Box::new(left_ty),
+                    });
+                    
+                    Ok((Type::Bool, left_constraints))
                 }
+
+                BinaryOp::LessThan | BinaryOp::GreaterThan | 
+                BinaryOp::LessEqual | BinaryOp::GreaterEqual =>
+                { 
+                    unify(&left_ty, &right_ty)?;
+                    
+                    match (&left_ty, &right_ty) {
+                        (Type::Float, Type::Float) | (Type::Int, Type::Int) |
+                        (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) |
+                        (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) |
+                        (Type::TypeVar(_), Type::TypeVar(_)) => Ok((Type::Bool, left_constraints)),
+                        _ => Err("Comparison requires numeric types".into())
+                    }
+                }
+
+                _ => Err(format!("Unsupported binary operation: {:?}", op)),
+            }
+        }
+
+        Expr::Lambda(params, body) =>
+        { 
+            let mut param_types = Vec::new();
+        
+            for param in params
+            { 
+                let ty = type_var_gen.fresh();
+                env.insert(param.clone(), 
+                    TypeScheme { type_vars: vec![], constraints: vec![], ty: ty.clone() });
+                param_types.push(ty);
+            }
             
-                Ok(first)
+            let (body_ty, body_constraints) = body.infer_type(env, type_var_gen)?;
+            
+            for param in params {
+                env.remove(param);
+            }
+            
+            let func_type = param_types.into_iter().rev().fold(body_ty, |acc, ty| {
+                Type::Function(Box::new(ty), Box::new(acc))
+            });
+        
+            Ok((func_type, body_constraints))
+        }
+
+        Expr::Let(bindings, body) => {
+            let mut placeholders: HashMap<String, Type> = HashMap::new();
+            let mut all_constraints = Vec::new();
+            
+            for (name, _) in bindings.iter() {
+                let tv = type_var_gen.fresh();
+                placeholders.insert(name.clone(), tv);
+            }
+        
+            let mut local_env = env.clone();
+            for (name, tv) in placeholders.iter() {
+                local_env.insert(
+                    name.clone(),
+                    TypeScheme { type_vars: vec![], constraints: vec![], ty: tv.clone() },
+                );
+            }
+        
+            let mut subst: Substitution = Substitution::new();
+            for (name, expr) in bindings.iter() {
+                let (inferred_ty, constraints) = expr.infer_type(&mut local_env, type_var_gen)?;
+                all_constraints.extend(constraints);
+                
+                let tv = placeholders.get(name).unwrap();
+                let s = unify(tv, &inferred_ty)?;
+                subst = compose_substitutions(s, subst);
+        
+                for (_, scheme) in local_env.iter_mut() {
+                    scheme.ty = apply_substitution(&scheme.ty, &subst);
+                }
+            }
+        
+            for (name, _) in bindings.iter() {
+                let final_ty = apply_substitution(placeholders.get(name).unwrap(), &subst);
+                let scheme = generalize(&local_env, &final_ty, all_constraints.clone());
+                local_env.insert(name.clone(), scheme.clone());
+            }
+        
+            for (name, _) in bindings {
+                env.insert(name.clone(), local_env.get(name).unwrap().clone());
+            }
+            
+            let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+            all_constraints.extend(body_constraints);
+            
+            Ok((apply_substitution(&body_ty, &subst), all_constraints))
+        }
+
+        Expr::If(cond, then_branch, else_branch) => 
+        {
+            let (cond_ty, mut cond_constraints) = cond.infer_type(env, type_var_gen)?;
+            if cond_ty != Type::Bool {
+                return Err("Condition in if-expression must be Bool".into());
+            }
+        
+            let (then_ty, then_constraints) = then_branch.infer_type(env, type_var_gen)?;
+            let (else_ty, else_constraints) = else_branch.infer_type(env, type_var_gen)?;
+        
+            unify(&then_ty, &else_ty)?;
+            
+            cond_constraints.extend(then_constraints);
+            cond_constraints.extend(else_constraints);
+            
+            Ok((then_ty, cond_constraints))
+        }
+
+        Expr::Application(func, arg) => {
+            let (func_ty, mut func_constraints) = func.infer_type(env, type_var_gen)?;
+            let (arg_ty, arg_constraints) = arg.infer_type(env, type_var_gen)?;
+            func_constraints.extend(arg_constraints);
+            
+            let result_ty = type_var_gen.fresh();
+            let func_expected_ty = Type::Function(Box::new(arg_ty), Box::new(result_ty.clone()));
+        
+            let subst = unify(&func_ty, &func_expected_ty)?;
+            
+            Ok((apply_substitution(&result_ty, &subst), func_constraints))
+        }
+
+        Expr::Match(scrutinee, arms) => 
+        { 
+            let (scrutinee_ty, mut all_constraints) = scrutinee.infer_type(env, type_var_gen)?;
+            let mut arm_tys = Vec::new();
+
+            for (pattern, guard, body) in arms 
+            { 
+                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen);
+                unify(&scrutinee_ty, &pat_ty)?;
+
+                let mut local_env = env.clone();
+                for (name, ty) in bindings
+                { 
+                    let scheme = generalize(env, &ty, vec![]);
+                    local_env.insert(name, scheme);
+                }
+
+                if let Some(g) = guard 
+                { 
+                    let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen)?;
+                    unify(&guard_ty, &Type::Bool)?;
+                    all_constraints.extend(guard_constraints);
+                }
+
+                let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+                all_constraints.extend(body_constraints);
+                arm_tys.push(body_ty);
             }
 
-            Expr::Annotated(expr, ann_ty) => {
-                let inferred_ty = expr.infer_type(env, type_var_gen)?;
-                let subst = unify(&inferred_ty, ann_ty)?;
-                Ok(apply_substitution(ann_ty, &subst))
+            let first = arm_tys[0].clone();
+            for t in arm_tys.iter().skip(1) {
+                unify(&first, t)?;
             }
+        
+            Ok((first, all_constraints))
+        }
 
-            _ => Err("Expression not supported".into()),
+        Expr::Annotated(expr, ann_ty) => {
+            let (inferred_ty, constraints) = expr.infer_type(env, type_var_gen)?;
+            let subst = unify(&inferred_ty, ann_ty)?;
+            Ok((apply_substitution(ann_ty, &subst), constraints))
+        }
+
+        _ => Err("Expression not supported".into()),
+        
         }
     }
 }
@@ -434,9 +460,44 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> 
     }
 }
 
-pub fn generalize(env: &TypeEnv, ty: &Type) -> TypeScheme {
+pub fn generalize(env: &TypeEnv, ty: &Type, constraints: Vec<Constraint>) -> TypeScheme {
     let env_vars = free_type_vars_in_env(env);
     let ty_vars = free_type_vars(ty);
     let type_vars: Vec<String> = ty_vars.difference(&env_vars).cloned().collect();
-    TypeScheme { type_vars, ty: ty.clone() }
+    TypeScheme { type_vars, constraints, ty: ty.clone() }
+}
+
+pub fn solve_constraints(
+    constraints: &[Constraint],
+    class_env: &ClassEnv,
+    subst: &Substitution,
+) -> Result<Vec<Constraint>, String> {
+    let mut unsolved = Vec::new();
+    
+    for constraint in constraints {
+        let ty = apply_substitution(&constraint.ty, subst);
+        
+        // Check if there's a matching instance
+        let mut found = false;
+        for inst in &class_env.instances {
+            if inst.class_name == constraint.class {
+                match unify(&ty, &inst.ty) {
+                    Ok(_) => {
+                        found = true;
+                        break;
+                    }
+                    Err(_) => continue,
+                }
+            }
+        }
+        
+        if !found {
+            unsolved.push(Constraint {
+                class: constraint.class.clone(),
+                ty: Box::new(ty),
+            });
+        }
+    }
+    
+    Ok(unsolved)
 }

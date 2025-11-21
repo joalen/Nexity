@@ -1,5 +1,27 @@
 use std::collections::HashMap;
 
+pub enum Decl {
+    Data(String, Vec<String>, Vec<Constructor>),
+    TypeAlias(String, Vec<String>, Type),
+    Class(String, String, Vec<MethodSig>),
+    Instance(String, Type, Vec<MethodImpl>),
+}
+
+pub struct MethodSig {
+    pub name: String,
+    pub ty: Type,
+}
+
+pub struct MethodImpl {
+    pub name: String,
+    pub body: Expr,
+}
+
+pub struct Constructor {
+    pub name: String,
+    pub fields: Vec<Type>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     IntLiteral(i64),
@@ -20,6 +42,13 @@ pub enum Type {
     Function(Box<Type>, Box<Type>),
     Custom(String),
     TypeVar(String),
+    Constrained(Vec<Constraint>, Box<Type>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Constraint {
+    pub class: String,
+    pub ty: Box<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)] 

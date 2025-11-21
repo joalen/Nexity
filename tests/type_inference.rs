@@ -1,22 +1,21 @@
-use nexity::ast::ast::{Expr, Type, BinaryOp, Pattern};
+use nexity::ast::ast::{BinaryOp, Constraint, Expr, Pattern, Type};
 use nexity::ast::types::{TypeInference};
 use nexity::lexer::Lexer;
 use nexity::parser::{Parser, Precedence};
 
 // helper method to test out recursive let bindings
-fn infer_type_of(input: &str) -> Result<Type, String> {
+fn infer_type_of(input: &str) -> Result<(Type, Vec<Constraint>), String> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
-
     let expr = parser.parse_expr(Precedence::Lowest)
         .ok_or("Parse failed")?;
-
     let mut infer = TypeInference::new();
     infer.infer(&expr)
 }
 
 fn infer(input: &str) -> Type {
-    infer_type_of(input).expect("Type inference failed")
+    let (ty, _) = infer_type_of(input).expect("Type inference failed");
+    ty
 }
 
 #[test]
@@ -51,7 +50,7 @@ fn test_valid_binary_operations_inference()
 
     for (expr, expected_type) in cases 
     { 
-        let inferred_type = type_infer.infer(&expr).unwrap();
+        let (inferred_type, _) = type_infer.infer(&expr).unwrap();
         assert_eq!(inferred_type, expected_type);
     }
 }
@@ -64,11 +63,23 @@ fn test_valid_comparison_operations()
     let expr = Expr::BinaryOp(
         Box::new(Expr::Int(42)),
         BinaryOp::Equal,
-        Box::new(Expr::Int(25)), 
+        Box::new(Expr::Int(25)),
     );
 
     let inferred_type = type_infer.infer(&expr).unwrap();
-    assert_eq!(inferred_type, Type::Bool);
+
+    assert_eq!(
+        inferred_type,
+        (
+            Type::Bool,
+            vec![
+                Constraint {
+                    class: "Eq".to_string(),
+                    ty: Box::new(Type::Int)
+                }
+            ]
+        )
+    );
 }
 
 #[test]
@@ -218,7 +229,7 @@ fn test_match_wildcard()
 
     let mut infer = TypeInference::new();
     let ty = infer.infer(&expr).unwrap();
-    assert_eq!(ty, Type::Float);
+    assert_eq!(ty, (Type::Float, vec![]));
 }
 
 fn test_match_arm_type_mismatch_fails()

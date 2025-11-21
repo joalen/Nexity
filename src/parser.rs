@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, ReservedToken, Token};
-use crate::ast::ast::{BinaryOp, Expr, Pattern, Type};
+use crate::ast::ast::{BinaryOp, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -415,6 +415,131 @@ impl<'a> Parser<'a>
             }
             _ => None,
         }
+    }
+
+    fn parse_class(&mut self) -> Option<Decl> {
+        self.next_token(); // consume 'class'
+        
+        // Get class name
+        let class_name = if let Token::Identifier(name) = &self.current_token {
+            name.clone()
+        } else {
+            return None;
+        };
+        self.next_token();
+        
+        // Get type variable
+        let type_var = if let Token::Identifier(var) = &self.current_token {
+            var.clone()
+        } else {
+            return None;
+        };
+        self.next_token();
+        
+        // Expect 'where'
+        if self.current_token != Token::ReserveTok(ReservedToken::Where) {
+            return None;
+        }
+        self.next_token();
+        
+        // Expect '{'
+        if self.current_token != Token::Char('{') {
+            return None;
+        }
+        self.next_token();
+        
+        // Parse method signatures
+        let mut methods = Vec::new();
+        while self.current_token != Token::Char('}') {
+            if let Token::Identifier(method_name) = &self.current_token {
+                let name = method_name.clone();
+                self.next_token();
+                
+                // Expect '::'
+                if self.current_token != Token::DoubleColon {
+                    return None;
+                }
+                self.next_token();
+                
+                // Parse type
+                let ty = self.parse_type()?;
+                methods.push(MethodSig { name, ty });
+                
+                // Optional semicolon
+                if self.current_token == Token::Char(';') {
+                    self.next_token();
+                }
+            } else {
+                break;
+            }
+        }
+        
+        // Expect '}'
+        if self.current_token == Token::Char('}') {
+            self.next_token();
+        }
+        
+        Some(Decl::Class(class_name, type_var, methods))
+    }
+    
+    fn parse_instance(&mut self) -> Option<Decl> {
+        self.next_token(); // consume 'instance'
+        
+        // Get class name
+        let class_name = if let Token::Identifier(name) = &self.current_token {
+            name.clone()
+        } else {
+            return None;
+        };
+        self.next_token();
+        
+        // Parse the type
+        let ty = self.parse_type()?;
+        
+        // Expect 'where'
+        if self.current_token != Token::ReserveTok(ReservedToken::Where) {
+            return None;
+        }
+        self.next_token();
+        
+        // Expect '{'
+        if self.current_token != Token::Char('{') {
+            return None;
+        }
+        self.next_token();
+        
+        // Parse method implementations
+        let mut methods = Vec::new();
+        while self.current_token != Token::Char('}') {
+            if let Token::Identifier(method_name) = &self.current_token {
+                let name = method_name.clone();
+                self.next_token();
+                
+                // Expect '='
+                if self.current_token != Token::Equals {
+                    return None;
+                }
+                self.next_token();
+                
+                // Parse body expression
+                let body = self.parse_expr(Precedence::Lowest)?;
+                methods.push(MethodImpl { name, body });
+                
+                // Optional semicolon
+                if self.current_token == Token::Char(';') {
+                    self.next_token();
+                }
+            } else {
+                break;
+            }
+        }
+        
+        // Expect '}'
+        if self.current_token == Token::Char('}') {
+            self.next_token();
+        }
+        
+        Some(Decl::Instance(class_name, ty, methods))
     }
 
     fn current_token_precedence(&self) -> Option<Precedence> 
