@@ -541,7 +541,7 @@ impl<'a> Parser<'a>
         
         Some(Decl::Instance(class_name, ty, methods))
     }
-
+    
     fn current_token_precedence(&self) -> Option<Precedence> 
     {
         Some(Precedence::from_token(&self.current_token))

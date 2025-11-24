@@ -26,6 +26,37 @@ pub struct Instance {
     pub methods: HashMap<String, Expr>,
 }
 
+pub struct FuncClause {
+    pub patterns: Vec<Pattern>,
+    pub body: Expr,
+}
+
+pub struct FuncDecl
+{
+    pub name: String,
+    pub clauses: Vec<FuncClause>,
+    pub variants: Vec<Variant>
+}
+
+// ADTs
+pub struct TypeDecl
+{ 
+    pub name: String, 
+    pub type_params: Vec<String>,
+    pub variants: Vec<Variant>
+}
+
+pub struct Variant
+{ 
+    pub name: String,
+    pub arg_types: Vec<Type>,
+}
+
+pub enum Item 
+{
+    Func(FuncDecl),
+    Type(TypeDecl),
+}
 
 #[derive(Debug, Clone)]
 pub struct TypeScheme

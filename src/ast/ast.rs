@@ -43,6 +43,8 @@ pub enum Type {
     Custom(String),
     TypeVar(String),
     Constrained(Vec<Constraint>, Box<Type>),
+    Constructor(String), 
+    Apply(Box<Type>, Vec<Type>)
 }
 
 #[derive(Debug, Clone, PartialEq)]
