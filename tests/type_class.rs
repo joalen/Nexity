@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nexity::ast::{ast::{BinaryOp, Expr, Type}, types::{ClassDef, Instance, Substitution, TypeDecl, TypeInference, Variant}};
+use nexity::ast::{ast::{BinaryOp, Constructor, Decl, Expr, Type}, types::{ClassDef, Instance, Substitution, TypeDecl, TypeInference, Variant}};
 use nexity::ast::types::solve_constraints;
 
 #[test]
@@ -133,31 +133,92 @@ fn test_list_adt() {
     let mut type_infer = TypeInference::new();
     
     // data List a = Nil | Cons a (List a)
-    type_infer.adt_env.insert(
+    let list_decl = Decl::Data(
         "List".to_string(),
-        TypeDecl {
-            name: "List".to_string(),
-            type_params: vec!["a".to_string()],
-            variants: vec![
-                Variant {
-                    name: "Nil".to_string(),
-                    arg_types: vec![],
-                },
-                Variant {
-                    name: "Cons".to_string(),
-                    arg_types: vec![
-                        Type::TypeVar("a".to_string()),
-                        Type::Apply(
-                            Box::new(Type::Custom("List".to_string())),
-                            vec![Type::TypeVar("a".to_string())],
-                        ),
-                    ],
-                },
-            ],
-        },
+        vec!["a".to_string()],
+        vec![
+            Constructor { name: "Nil".to_string(), fields: vec![] },
+            Constructor { 
+                name: "Cons".to_string(), 
+                fields: vec![
+                    Type::TypeVar("a".to_string()),
+                    Type::Apply(
+                        Box::new(Type::Custom("List".to_string())),
+                        vec![Type::TypeVar("a".to_string())],
+                    ),
+                ],
+            },
+        ]
     );
-
+    type_infer.register_decl(&list_decl);
+    
+    // Test Nil constructor
     let nil = Expr::Identifier("Nil".to_string());
     let (ty, _) = type_infer.infer(&nil).unwrap();
-    println!("Nil type: {:?}", ty);
+    assert!(matches!(ty, Type::Apply(..)));
+    
+    // Test List Int kind checks
+    let list_int = Type::Apply(
+        Box::new(Type::Custom("List".to_string())),
+        vec![Type::Int]
+    );
+    assert!(type_infer.check_kind(&list_int, &type_infer.kind_env).is_ok());
+}
+#[test]
+fn test_kind_checking()
+{
+    let mut type_infer = TypeInference::new();
+
+    // test 1 - Register Maybe a = Just a | Nothing
+    let maybe_decl = Decl::Data(
+        "Maybe".to_string(),
+        vec!["a".to_string()],
+        vec![
+            Constructor { name: "Just".to_string(), fields: vec![Type::TypeVar("a".to_string())] },
+            Constructor { name: "Nothing".to_string(), fields: vec![] }
+        ]
+    );
+    type_infer.register_decl(&maybe_decl);
+
+    // test 2 - valid - Maybe Int (kind checks out)
+    let valid = Type::Apply(
+        Box::new(Type::Custom("Maybe".to_string())),
+        vec![Type::Int]
+    );
+    assert!(type_infer.check_kind(&valid, &type_infer.kind_env).is_ok());
+    println!("Maybe Int is valid");
+
+    // test 3 - invalid - Int Int (so we avoid this non-sense)
+    let invalid = Type::Apply(
+        Box::new(Type::Int),
+        vec![Type::Int]
+    );
+    assert!(type_infer.check_kind(&invalid, &type_infer.kind_env).is_err());
+    println!("Int Int rejected!");
+
+    // test 4 - another invalid case - Maybe Int Int (too many type args)
+    let too_many = Type::Apply(
+        Box::new(Type::Custom("Maybe".to_string())),
+        vec![Type::Int, Type::Int]
+    );
+    assert!(type_infer.check_kind(&too_many, &type_infer.kind_env).is_err());
+    println!("Maybe Int Int rejected!");
+
+    // test 5 - Either ab (kind * -> * -> *)
+    let either_decl = Decl::Data(
+        "Either".to_string(),
+        vec!["a".to_string(), "b".to_string()],
+        vec![
+            Constructor { name: "Left".to_string(), fields: vec![Type::TypeVar("a".to_string())] },
+            Constructor { name: "Right".to_string(), fields: vec![Type::TypeVar("b".to_string())] }
+        ]
+    );
+    type_infer.register_decl(&either_decl);
+
+    let either_int_bool = Type::Apply(
+        Box::new(Type::Custom("Either".to_string())),
+        vec![Type::Int, Type::Bool]
+    );
+    assert!(type_infer.check_kind(&either_int_bool, &type_infer.kind_env).is_ok());
+    println!("Either Int Bool is valid");
 }

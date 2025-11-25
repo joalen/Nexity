@@ -1,9 +1,10 @@
-use crate::ast::ast::{BinaryOp, Constraint, Pattern};
+use crate::ast::ast::{BinaryOp, Constraint, Decl, Kind, Pattern};
 use crate::ast::ast::{Expr, Type};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::vec;
 
+pub type KindEnv = HashMap<String, Kind>;
 pub type TypeEnv = HashMap<String, TypeScheme>;
 pub type Substitution = std::collections::HashMap<String, Type>;
 
@@ -176,12 +177,20 @@ pub struct TypeInference
     pub type_var_gen: TypeVarGenerator,
     pub class_env: ClassEnv,
     pub adt_env: HashMap<String, TypeDecl>,
+    pub kind_env: KindEnv,
 }
 
 impl TypeInference
 { 
     pub fn new() -> Self 
     { 
+        // checking for kinds
+        let mut kind_env: KindEnv = HashMap::new();
+        kind_env.insert("Int".to_string(), Kind::Star);
+        kind_env.insert("Float".to_string(), Kind::Star);
+        kind_env.insert("Bool".to_string(), Kind::Star);
+        kind_env.insert("Char".to_string(), Kind::Star);
+
         TypeInference 
         { 
             env: HashMap::new(), 
@@ -190,7 +199,8 @@ impl TypeInference
                 classes: HashMap::new(),
                 instances: Vec::new(),
             },
-            adt_env: HashMap::new()
+            adt_env: HashMap::new(),
+            kind_env
         }
     }
 
@@ -198,6 +208,78 @@ impl TypeInference
     { 
         expr.infer_type(&mut self.env, &mut self.type_var_gen, &self.adt_env)
     }
+
+    pub fn check_kind(&self, ty: &Type, kind_env: &KindEnv) -> Result<Kind, String> 
+    { 
+        match ty
+        { 
+            Type::Int | Type::Bool | Type::Float | Type::Char => Ok(Kind::Star),
+
+            Type::Custom(name) => 
+            { 
+                kind_env.get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("Unknown type constructor: {}", name))
+            }
+
+            Type::Apply(constructor, args) => 
+            { 
+                let ctor_kind = self.check_kind(constructor, kind_env)?;
+                let mut current_kind = ctor_kind;
+
+                for arg in args
+                { 
+                    match current_kind 
+                    { 
+                        Kind::Arrow(param_kind, ret_kind) => 
+                        { 
+                            let arg_kind = self.check_kind(arg, kind_env)?;
+                            if *param_kind != arg_kind 
+                            { 
+                                return Err("Kind mismatch!".into());
+                            }
+                            current_kind = *ret_kind;
+                        }
+
+                        Kind::Star => return Err("Too many type arguments".into())
+                    }
+                }
+
+                Ok(current_kind)
+            }
+
+            _ => Ok(Kind::Star)
+        }
+    }
+
+    pub fn register_decl(&mut self, decl: &Decl)
+    { 
+        match decl
+        { 
+            Decl::Data(name, type_params, constructors) => 
+            { 
+                let kind = type_params.iter().rev().fold(Kind::Star, |acc, _| {
+                    Kind::Arrow(Box::new(Kind::Star), Box::new(acc))
+                });
+
+                self.kind_env.insert(name.clone(), kind);
+
+                self.adt_env.insert(name.clone(), TypeDecl
+                { 
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    variants: constructors.iter().map(|c| Variant 
+                    { 
+                        name: c.name.clone(), 
+                        arg_types: c.fields.clone()
+                    }).collect(),
+                });
+            }
+
+            _ => {} // handling other decls later
+        }
+    }
+
 }
 
 impl Expr

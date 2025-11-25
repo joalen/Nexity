@@ -1,5 +1,11 @@
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Kind
+{
+    Star, // *
+    Arrow(Box<Kind>, Box<Kind>), // * -> *
+}
 pub enum Decl {
     Data(String, Vec<String>, Vec<Constructor>),
     TypeAlias(String, Vec<String>, Type),
