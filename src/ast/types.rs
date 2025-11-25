@@ -223,7 +223,7 @@ impl Expr
                         if variant.name == *name
                         { 
                             // build out the constructor type: field1 -> field2 -> ... -> ResultType
-                            let result_ty = if (type_decl.type_params.is_empty()) 
+                            let result_ty = if type_decl.type_params.is_empty()
                             { 
                                 Type::Custom(type_decl.name.clone())
                             } else { 
@@ -424,7 +424,7 @@ impl Expr
 
             for (pattern, guard, body) in arms 
             { 
-                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen);
+                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
                 unify(&scrutinee_ty, &pat_ty)?;
 
                 let mut local_env = env.clone();
@@ -484,7 +484,7 @@ fn free_type_vars_in_env(env: &TypeEnv) -> HashSet<String> {
         .collect()
 }
 
-pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> (Type, Vec<(String, Type)>) 
+pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> (Type, Vec<(String, Type)>) 
 {
     match pattern {
         Pattern::Literal(n) => {
@@ -504,24 +504,41 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> 
             (type_var_gen.fresh(), vec![])
         }
 
-        Pattern::Constructor(_, subpatterns) => {
-            // If you add ADTs later, fill this in properly
+        Pattern::Constructor(name, subpatterns) => {
             let mut bindings = vec![];
-            let mut arg_tys = vec![];
 
-            for pat in subpatterns {
-                let (ty, pat_bindings) = infer_pattern(pat, type_var_gen);
-                bindings.extend(pat_bindings);
-                arg_tys.push(ty);
+            for type_decl in adt_env.values() { // get constructor from env
+                for variant in &type_decl.variants {
+                    if variant.name == *name {
+                        if variant.arg_types.len() != subpatterns.len() {
+                            panic!("Constructor arity mismatch for {}", name); // confirm arity matched
+                        }
+                        
+                        // Infer subpatterns
+                        for (i, pat) in subpatterns.iter().enumerate() {
+                            let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                            bindings.extend(pat_bindings);
+                            // Could unify pat_ty with variant.arg_types[i] here
+                        }
+                        
+                        // Build result type
+                        let result_ty = if type_decl.type_params.is_empty() {
+                            Type::Custom(type_decl.name.clone())
+                        } else {
+                            Type::Apply(
+                                Box::new(Type::Custom(type_decl.name.clone())),
+                                type_decl.type_params.iter()
+                                    .map(|_| type_var_gen.fresh())
+                                    .collect()
+                            )
+                        };
+                        
+                        return (result_ty, bindings);
+                    }
+                }
             }
-
-            // constructor type unknown now → fresh type, unify later
-            let result_ty = type_var_gen.fresh();
-            let fn_ty = arg_tys.into_iter().rfold(result_ty.clone(), |ret, param| {
-                Type::Function(Box::new(param), Box::new(ret))
-            });
-
-            (fn_ty, bindings)
+            
+            panic!("Unknown constructor: {}", name);
         }
     }
 }
