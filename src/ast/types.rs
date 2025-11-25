@@ -26,6 +26,37 @@ pub struct Instance {
     pub methods: HashMap<String, Expr>,
 }
 
+pub struct FuncClause {
+    pub patterns: Vec<Pattern>,
+    pub body: Expr,
+}
+
+pub struct FuncDecl
+{
+    pub name: String,
+    pub clauses: Vec<FuncClause>,
+    pub variants: Vec<Variant>
+}
+
+// ADTs
+pub struct TypeDecl
+{ 
+    pub name: String, 
+    pub type_params: Vec<String>,
+    pub variants: Vec<Variant>
+}
+
+pub struct Variant
+{ 
+    pub name: String,
+    pub arg_types: Vec<Type>,
+}
+
+pub enum Item 
+{
+    Func(FuncDecl),
+    Type(TypeDecl),
+}
 
 #[derive(Debug, Clone)]
 pub struct TypeScheme
@@ -144,6 +175,7 @@ pub struct TypeInference
     pub env: TypeEnv, 
     pub type_var_gen: TypeVarGenerator,
     pub class_env: ClassEnv,
+    pub adt_env: HashMap<String, TypeDecl>,
 }
 
 impl TypeInference
@@ -158,18 +190,19 @@ impl TypeInference
                 classes: HashMap::new(),
                 instances: Vec::new(),
             },
+            adt_env: HashMap::new()
         }
     }
 
     pub fn infer(&mut self, expr: &Expr) -> Result<(Type, Vec<Constraint>), String> 
     { 
-        expr.infer_type(&mut self.env, &mut self.type_var_gen)
+        expr.infer_type(&mut self.env, &mut self.type_var_gen, &self.adt_env)
     }
 }
 
 impl Expr
 { 
-    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator) -> Result<(Type, Vec<Constraint>), String> { 
+    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> Result<(Type, Vec<Constraint>), String> { 
     match self
     {
         Expr::Int(_) => Ok((Type::Int, vec![])),
@@ -179,6 +212,39 @@ impl Expr
 
         Expr::Identifier(name) => 
         { 
+            // check if we're at a constructor first 
+            if name.chars().next().unwrap().is_uppercase()
+            { 
+                // Look up in ADT env for constructor types
+                for (_, type_decl) in adt_env.iter()
+                { 
+                    for variant in &type_decl.variants
+                    { 
+                        if variant.name == *name
+                        { 
+                            // build out the constructor type: field1 -> field2 -> ... -> ResultType
+                            let result_ty = if type_decl.type_params.is_empty()
+                            { 
+                                Type::Custom(type_decl.name.clone())
+                            } else { 
+                                Type::Apply
+                                (
+                                    Box::new(Type::Custom(type_decl.name.clone())),
+                                    type_decl.type_params.iter().map(|p| Type::TypeVar(p.clone())).collect()
+                                )
+                            };
+
+                            let ctor_ty = variant.arg_types.iter().rfold(result_ty, |acc, field| {
+                                Type::Function(Box::new(field.clone()), Box::new(acc))
+                            });
+
+                            return Ok((ctor_ty, vec![]));
+                        }
+                    }
+                }
+            }
+
+
             let scheme = env.get(name)
                 .ok_or_else(|| format!("Unbound identifier: {}", name))?;
             let ty = instantiate(scheme, type_var_gen);
@@ -188,8 +254,8 @@ impl Expr
 
         Expr::BinaryOp(lhs, op, rhs) =>
         { 
-            let (left_ty, mut left_constraints) = lhs.infer_type(env, type_var_gen)?;
-            let (right_ty, right_constraints) = rhs.infer_type(env, type_var_gen)?;
+            let (left_ty, mut left_constraints) = lhs.infer_type(env, type_var_gen, adt_env)?;
+            let (right_ty, right_constraints) = rhs.infer_type(env, type_var_gen, adt_env)?;
             left_constraints.extend(right_constraints);
             
             match op
@@ -260,7 +326,7 @@ impl Expr
                 param_types.push(ty);
             }
             
-            let (body_ty, body_constraints) = body.infer_type(env, type_var_gen)?;
+            let (body_ty, body_constraints) = body.infer_type(env, type_var_gen, adt_env)?;
             
             for param in params {
                 env.remove(param);
@@ -292,7 +358,7 @@ impl Expr
         
             let mut subst: Substitution = Substitution::new();
             for (name, expr) in bindings.iter() {
-                let (inferred_ty, constraints) = expr.infer_type(&mut local_env, type_var_gen)?;
+                let (inferred_ty, constraints) = expr.infer_type(&mut local_env, type_var_gen, adt_env)?;
                 all_constraints.extend(constraints);
                 
                 let tv = placeholders.get(name).unwrap();
@@ -314,7 +380,7 @@ impl Expr
                 env.insert(name.clone(), local_env.get(name).unwrap().clone());
             }
             
-            let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+            let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env)?;
             all_constraints.extend(body_constraints);
             
             Ok((apply_substitution(&body_ty, &subst), all_constraints))
@@ -322,13 +388,13 @@ impl Expr
 
         Expr::If(cond, then_branch, else_branch) => 
         {
-            let (cond_ty, mut cond_constraints) = cond.infer_type(env, type_var_gen)?;
+            let (cond_ty, mut cond_constraints) = cond.infer_type(env, type_var_gen, adt_env)?;
             if cond_ty != Type::Bool {
                 return Err("Condition in if-expression must be Bool".into());
             }
         
-            let (then_ty, then_constraints) = then_branch.infer_type(env, type_var_gen)?;
-            let (else_ty, else_constraints) = else_branch.infer_type(env, type_var_gen)?;
+            let (then_ty, then_constraints) = then_branch.infer_type(env, type_var_gen, adt_env)?;
+            let (else_ty, else_constraints) = else_branch.infer_type(env, type_var_gen, adt_env)?;
         
             unify(&then_ty, &else_ty)?;
             
@@ -339,8 +405,8 @@ impl Expr
         }
 
         Expr::Application(func, arg) => {
-            let (func_ty, mut func_constraints) = func.infer_type(env, type_var_gen)?;
-            let (arg_ty, arg_constraints) = arg.infer_type(env, type_var_gen)?;
+            let (func_ty, mut func_constraints) = func.infer_type(env, type_var_gen, adt_env)?;
+            let (arg_ty, arg_constraints) = arg.infer_type(env, type_var_gen, adt_env)?;
             func_constraints.extend(arg_constraints);
             
             let result_ty = type_var_gen.fresh();
@@ -353,12 +419,12 @@ impl Expr
 
         Expr::Match(scrutinee, arms) => 
         { 
-            let (scrutinee_ty, mut all_constraints) = scrutinee.infer_type(env, type_var_gen)?;
+            let (scrutinee_ty, mut all_constraints) = scrutinee.infer_type(env, type_var_gen, adt_env)?;
             let mut arm_tys = Vec::new();
 
             for (pattern, guard, body) in arms 
             { 
-                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen);
+                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
                 unify(&scrutinee_ty, &pat_ty)?;
 
                 let mut local_env = env.clone();
@@ -370,12 +436,12 @@ impl Expr
 
                 if let Some(g) = guard 
                 { 
-                    let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen)?;
+                    let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen, adt_env)?;
                     unify(&guard_ty, &Type::Bool)?;
                     all_constraints.extend(guard_constraints);
                 }
 
-                let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+                let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env)?;
                 all_constraints.extend(body_constraints);
                 arm_tys.push(body_ty);
             }
@@ -389,7 +455,7 @@ impl Expr
         }
 
         Expr::Annotated(expr, ann_ty) => {
-            let (inferred_ty, constraints) = expr.infer_type(env, type_var_gen)?;
+            let (inferred_ty, constraints) = expr.infer_type(env, type_var_gen, adt_env)?;
             let subst = unify(&inferred_ty, ann_ty)?;
             Ok((apply_substitution(ann_ty, &subst), constraints))
         }
@@ -418,7 +484,7 @@ fn free_type_vars_in_env(env: &TypeEnv) -> HashSet<String> {
         .collect()
 }
 
-pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> (Type, Vec<(String, Type)>) 
+pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> (Type, Vec<(String, Type)>) 
 {
     match pattern {
         Pattern::Literal(n) => {
@@ -438,24 +504,41 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator) -> 
             (type_var_gen.fresh(), vec![])
         }
 
-        Pattern::Constructor(_, subpatterns) => {
-            // If you add ADTs later, fill this in properly
+        Pattern::Constructor(name, subpatterns) => {
             let mut bindings = vec![];
-            let mut arg_tys = vec![];
 
-            for pat in subpatterns {
-                let (ty, pat_bindings) = infer_pattern(pat, type_var_gen);
-                bindings.extend(pat_bindings);
-                arg_tys.push(ty);
+            for type_decl in adt_env.values() { // get constructor from env
+                for variant in &type_decl.variants {
+                    if variant.name == *name {
+                        if variant.arg_types.len() != subpatterns.len() {
+                            panic!("Constructor arity mismatch for {}", name); // confirm arity matched
+                        }
+                        
+                        // Infer subpatterns
+                        for (i, pat) in subpatterns.iter().enumerate() {
+                            let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                            bindings.extend(pat_bindings);
+                            // Could unify pat_ty with variant.arg_types[i] here
+                        }
+                        
+                        // Build result type
+                        let result_ty = if type_decl.type_params.is_empty() {
+                            Type::Custom(type_decl.name.clone())
+                        } else {
+                            Type::Apply(
+                                Box::new(Type::Custom(type_decl.name.clone())),
+                                type_decl.type_params.iter()
+                                    .map(|_| type_var_gen.fresh())
+                                    .collect()
+                            )
+                        };
+                        
+                        return (result_ty, bindings);
+                    }
+                }
             }
-
-            // constructor type unknown now → fresh type, unify later
-            let result_ty = type_var_gen.fresh();
-            let fn_ty = arg_tys.into_iter().rfold(result_ty.clone(), |ret, param| {
-                Type::Function(Box::new(param), Box::new(ret))
-            });
-
-            (fn_ty, bindings)
+            
+            panic!("Unknown constructor: {}", name);
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, ReservedToken, Token};
-use crate::ast::ast::{BinaryOp, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
+use crate::ast::ast::{BinaryOp, Constructor, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -542,6 +542,68 @@ impl<'a> Parser<'a>
         Some(Decl::Instance(class_name, ty, methods))
     }
 
+    fn parse_data(&mut self) -> Option<Decl> 
+    { 
+        self.next_token(); // consuming the 'data' token 
+
+        let name = match &self.current_token
+        { 
+            Token::Identifier(n) => n.clone(),
+            _ => return None,
+        };
+
+        self.next_token(); // consume name
+
+        // Type params 
+        let mut type_params = Vec::new();
+        while let Token::Identifier(param) = &self.current_token {
+            if param.chars().next().unwrap().is_lowercase() {
+                type_params.push(param.clone());
+                self.next_token();
+            } else {
+                break;
+            }
+        }
+
+        // Expect the equal sign
+        if self.current_token != Token::Equals 
+        { 
+            return None;
+        }
+
+        // parse constructors 
+        let mut constructors = Vec::new(); 
+        loop 
+        { 
+            let ctor_name = match &self.current_token
+            { 
+                Token::Identifier(n) => n.clone(), 
+                _ => break,
+            };
+
+            self.next_token(); // finally, consume constructor name
+
+            // get field types
+            let mut fields = Vec::new(); 
+            while let Some(ty) = self.parse_type()
+            { 
+                fields.push(ty);
+            }
+
+            constructors.push(Constructor { name: ctor_name, fields });
+
+            // check for the '|' to see if we continue or break 
+            if self.current_token == Token::Char('|') 
+            { 
+                self.next_token(); // consume '|'
+            } else { 
+                break;
+            }
+        }
+
+        Some(Decl::Data(name, type_params, constructors))
+
+    }
     fn current_token_precedence(&self) -> Option<Precedence> 
     {
         Some(Precedence::from_token(&self.current_token))
