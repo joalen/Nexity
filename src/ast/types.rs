@@ -175,6 +175,7 @@ pub struct TypeInference
     pub env: TypeEnv, 
     pub type_var_gen: TypeVarGenerator,
     pub class_env: ClassEnv,
+    pub adt_env: HashMap<String, TypeDecl>,
 }
 
 impl TypeInference
@@ -189,18 +190,19 @@ impl TypeInference
                 classes: HashMap::new(),
                 instances: Vec::new(),
             },
+            adt_env: HashMap::new()
         }
     }
 
     pub fn infer(&mut self, expr: &Expr) -> Result<(Type, Vec<Constraint>), String> 
     { 
-        expr.infer_type(&mut self.env, &mut self.type_var_gen)
+        expr.infer_type(&mut self.env, &mut self.type_var_gen, &self.adt_env)
     }
 }
 
 impl Expr
 { 
-    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator) -> Result<(Type, Vec<Constraint>), String> { 
+    pub fn infer_type(&self, env: &mut TypeEnv, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> Result<(Type, Vec<Constraint>), String> { 
     match self
     {
         Expr::Int(_) => Ok((Type::Int, vec![])),
@@ -210,6 +212,39 @@ impl Expr
 
         Expr::Identifier(name) => 
         { 
+            // check if we're at a constructor first 
+            if name.chars().next().unwrap().is_uppercase()
+            { 
+                // Look up in ADT env for constructor types
+                for (_, type_decl) in adt_env.iter()
+                { 
+                    for variant in &type_decl.variants
+                    { 
+                        if variant.name == *name
+                        { 
+                            // build out the constructor type: field1 -> field2 -> ... -> ResultType
+                            let result_ty = if (type_decl.type_params.is_empty()) 
+                            { 
+                                Type::Custom(type_decl.name.clone())
+                            } else { 
+                                Type::Apply
+                                (
+                                    Box::new(Type::Custom(type_decl.name.clone())),
+                                    type_decl.type_params.iter().map(|p| Type::TypeVar(p.clone())).collect()
+                                )
+                            };
+
+                            let ctor_ty = variant.arg_types.iter().rfold(result_ty, |acc, field| {
+                                Type::Function(Box::new(field.clone()), Box::new(acc))
+                            });
+
+                            return Ok((ctor_ty, vec![]));
+                        }
+                    }
+                }
+            }
+
+
             let scheme = env.get(name)
                 .ok_or_else(|| format!("Unbound identifier: {}", name))?;
             let ty = instantiate(scheme, type_var_gen);
@@ -219,8 +254,8 @@ impl Expr
 
         Expr::BinaryOp(lhs, op, rhs) =>
         { 
-            let (left_ty, mut left_constraints) = lhs.infer_type(env, type_var_gen)?;
-            let (right_ty, right_constraints) = rhs.infer_type(env, type_var_gen)?;
+            let (left_ty, mut left_constraints) = lhs.infer_type(env, type_var_gen, adt_env)?;
+            let (right_ty, right_constraints) = rhs.infer_type(env, type_var_gen, adt_env)?;
             left_constraints.extend(right_constraints);
             
             match op
@@ -291,7 +326,7 @@ impl Expr
                 param_types.push(ty);
             }
             
-            let (body_ty, body_constraints) = body.infer_type(env, type_var_gen)?;
+            let (body_ty, body_constraints) = body.infer_type(env, type_var_gen, adt_env)?;
             
             for param in params {
                 env.remove(param);
@@ -323,7 +358,7 @@ impl Expr
         
             let mut subst: Substitution = Substitution::new();
             for (name, expr) in bindings.iter() {
-                let (inferred_ty, constraints) = expr.infer_type(&mut local_env, type_var_gen)?;
+                let (inferred_ty, constraints) = expr.infer_type(&mut local_env, type_var_gen, adt_env)?;
                 all_constraints.extend(constraints);
                 
                 let tv = placeholders.get(name).unwrap();
@@ -345,7 +380,7 @@ impl Expr
                 env.insert(name.clone(), local_env.get(name).unwrap().clone());
             }
             
-            let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+            let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env)?;
             all_constraints.extend(body_constraints);
             
             Ok((apply_substitution(&body_ty, &subst), all_constraints))
@@ -353,13 +388,13 @@ impl Expr
 
         Expr::If(cond, then_branch, else_branch) => 
         {
-            let (cond_ty, mut cond_constraints) = cond.infer_type(env, type_var_gen)?;
+            let (cond_ty, mut cond_constraints) = cond.infer_type(env, type_var_gen, adt_env)?;
             if cond_ty != Type::Bool {
                 return Err("Condition in if-expression must be Bool".into());
             }
         
-            let (then_ty, then_constraints) = then_branch.infer_type(env, type_var_gen)?;
-            let (else_ty, else_constraints) = else_branch.infer_type(env, type_var_gen)?;
+            let (then_ty, then_constraints) = then_branch.infer_type(env, type_var_gen, adt_env)?;
+            let (else_ty, else_constraints) = else_branch.infer_type(env, type_var_gen, adt_env)?;
         
             unify(&then_ty, &else_ty)?;
             
@@ -370,8 +405,8 @@ impl Expr
         }
 
         Expr::Application(func, arg) => {
-            let (func_ty, mut func_constraints) = func.infer_type(env, type_var_gen)?;
-            let (arg_ty, arg_constraints) = arg.infer_type(env, type_var_gen)?;
+            let (func_ty, mut func_constraints) = func.infer_type(env, type_var_gen, adt_env)?;
+            let (arg_ty, arg_constraints) = arg.infer_type(env, type_var_gen, adt_env)?;
             func_constraints.extend(arg_constraints);
             
             let result_ty = type_var_gen.fresh();
@@ -384,7 +419,7 @@ impl Expr
 
         Expr::Match(scrutinee, arms) => 
         { 
-            let (scrutinee_ty, mut all_constraints) = scrutinee.infer_type(env, type_var_gen)?;
+            let (scrutinee_ty, mut all_constraints) = scrutinee.infer_type(env, type_var_gen, adt_env)?;
             let mut arm_tys = Vec::new();
 
             for (pattern, guard, body) in arms 
@@ -401,12 +436,12 @@ impl Expr
 
                 if let Some(g) = guard 
                 { 
-                    let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen)?;
+                    let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen, adt_env)?;
                     unify(&guard_ty, &Type::Bool)?;
                     all_constraints.extend(guard_constraints);
                 }
 
-                let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen)?;
+                let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env)?;
                 all_constraints.extend(body_constraints);
                 arm_tys.push(body_ty);
             }
@@ -420,7 +455,7 @@ impl Expr
         }
 
         Expr::Annotated(expr, ann_ty) => {
-            let (inferred_ty, constraints) = expr.infer_type(env, type_var_gen)?;
+            let (inferred_ty, constraints) = expr.infer_type(env, type_var_gen, adt_env)?;
             let subst = unify(&inferred_ty, ann_ty)?;
             Ok((apply_substitution(ann_ty, &subst), constraints))
         }
