@@ -185,7 +185,7 @@ impl<'a> Parser<'a>
         }
     }
 
-    fn parse_infix(&mut self, left: Expr, precedence: Precedence) -> Option<Expr> 
+    fn parse_infix(&mut self, left: Expr, _precedence: Precedence) -> Option<Expr> 
     {
         let binary_op = match self.current_token {
             Token::Char('+') => BinaryOp::Add,
@@ -583,6 +583,34 @@ impl<'a> Parser<'a>
 
             self.next_token(); // finally, consume constructor name
 
+            let mut fields = Vec::new();
+            if self.current_token == Token::Char('{') {
+                self.next_token();
+                while self.current_token != Token::Char('}') {
+                    let field_name = match &self.current_token {
+                        Token::Identifier(n) => n.clone(),
+                        _ => break,
+                    };
+                    self.next_token();
+                    
+                    if self.current_token != Token::DoubleColon { return None; }
+                    self.next_token();
+                    
+                    let ty = self.parse_type()?;
+                    fields.push((Some(field_name), ty));
+                    
+                    if self.current_token == Token::Char(',') {
+                        self.next_token();
+                    }
+                }
+                self.next_token(); // consume '}'
+            } else {
+                // Positional fields (existing code)
+                while let Some(ty) = self.parse_type() {
+                    fields.push((None, ty));
+                }
+            }
+
             // get field types
             let mut fields = Vec::new(); 
             while let Some(ty) = self.parse_type()
@@ -604,6 +632,42 @@ impl<'a> Parser<'a>
         Some(Decl::Data(name, type_params, constructors))
 
     }
+
+    fn parse_type_alias(&mut self) -> Option<Decl>
+    { 
+        self.next_token(); // consume 'type'
+
+        let name = match &self.current_token
+        { 
+            Token::Identifier(n) => n.clone(), 
+            _ => return None,
+        }; 
+
+        self.next_token();
+
+        let mut type_params = Vec::new();
+        while let Token::Identifier(param) = &self.current_token
+        { 
+            if param.chars().next().unwrap().is_lowercase()
+            { 
+                type_params.push(param.clone());
+                self.next_token();
+            } else { 
+                break;
+            }
+        }
+
+        if self.current_token != Token::Equals
+        { 
+            return None;
+        }
+
+        self.next_token();
+
+        let ty = self.parse_type()?;
+        Some(Decl::TypeAlias(name, type_params, ty))
+    }
+
     fn current_token_precedence(&self) -> Option<Precedence> 
     {
         Some(Precedence::from_token(&self.current_token))

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nexity::ast::{ast::{BinaryOp, Constructor, Decl, Expr, Type}, types::{ClassDef, Instance, Substitution, TypeDecl, TypeInference, Variant}};
+use nexity::ast::{ast::{BinaryOp, Constructor, Decl, Expr, Type}, types::{ClassDef, Instance, Substitution, TypeDecl, TypeInference, Variant, expand_type_alias}};
 use nexity::ast::types::solve_constraints;
 
 #[test]
@@ -79,7 +79,8 @@ fn test_constraint_solving() {
     let unsolved = solve_constraints(
         &constraints, 
         &type_infer.class_env, 
-        &Substitution::new()
+        &Substitution::new(),
+        &type_infer.type_aliases
     ).unwrap();
     
     assert_eq!(ty, Type::Bool);
@@ -221,4 +222,58 @@ fn test_kind_checking()
     );
     assert!(type_infer.check_kind(&either_int_bool, &type_infer.kind_env).is_ok());
     println!("Either Int Bool is valid");
+}
+
+#[test]
+fn test_simple_type_synonym() {
+    let mut type_infer = TypeInference::new();
+    
+    // Register: type MyInt = Int
+    type_infer.type_aliases.insert(
+        "MyInt".to_string(),
+        (vec![], Type::Int)
+    );
+    
+    let expr = Expr::Annotated(
+        Box::new(Expr::Int(42)),
+        Type::Custom("MyInt".to_string())
+    );
+    
+    let (ty, _) = type_infer.infer(&expr).unwrap();
+    assert_eq!(ty, Type::Int);
+}
+
+#[test]
+fn test_parameterized_type_synonym() {
+    let mut type_infer = TypeInference::new();
+    
+    // Register: type Pair a b = (a, b)
+    // For now just test the expansion logic since we don't have tuples
+    type_infer.type_aliases.insert(
+        "Pair".to_string(),
+        (vec!["a".to_string(), "b".to_string()], 
+         Type::Function(
+             Box::new(Type::TypeVar("a".to_string())),
+             Box::new(Type::TypeVar("b".to_string()))
+         ))
+    );
+    
+    let pair_int_bool = Type::Apply(
+        Box::new(Type::Custom("Pair".to_string())),
+        vec![Type::Int, Type::Bool]
+    );
+    
+    let expanded = expand_type_alias(&pair_int_bool, &type_infer.type_aliases);
+    assert_eq!(expanded, Type::Function(Box::new(Type::Int), Box::new(Type::Bool)));
+}
+
+#[test]
+fn test_nested_type_synonym() {
+    let mut type_infer = TypeInference::new();
+    
+    type_infer.type_aliases.insert("MyInt".to_string(), (vec![], Type::Int));
+    type_infer.type_aliases.insert("MyMyInt".to_string(), (vec![], Type::Custom("MyInt".to_string())));
+    
+    let expanded = expand_type_alias(&Type::Custom("MyMyInt".to_string()), &type_infer.type_aliases);
+    assert_eq!(expanded, Type::Int);
 }
