@@ -50,7 +50,8 @@ pub enum Type {
     TypeVar(String),
     Constrained(Vec<Constraint>, Box<Type>),
     Constructor(String), 
-    Apply(Box<Type>, Vec<Type>)
+    Apply(Box<Type>, Vec<Type>),
+    Forall(Vec<String>, Box<Type>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

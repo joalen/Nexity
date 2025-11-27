@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, PartialEq, Clone)]
 pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
-    Of, Module, Newtype, Then, Type, Where, Match, True, False, Class
+    Of, Module, Newtype, Then, Type, Where, Match, True, False, Class, Forall
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -200,6 +200,7 @@ impl<'a> Lexer<'a> {
             "True" => Token::ReserveTok(ReservedToken::True),
             "False" => Token::ReserveTok(ReservedToken::False),
             "type" => Token::ReserveTok(ReservedToken::Type),
+            "forall" => Token::ReserveTok(ReservedToken::Forall),
             _ => Token::Identifier(identifier),
         }
     }

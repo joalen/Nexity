@@ -232,6 +232,7 @@ fn test_match_wildcard()
     assert_eq!(ty, (Type::Float, vec![]));
 }
 
+#[test]
 fn test_match_arm_type_mismatch_fails()
     // Should fail: match x { _ => 1, _ => true }
 { 

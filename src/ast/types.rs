@@ -112,6 +112,17 @@ pub fn apply_substitution(ty: &Type, subst: &Substitution) -> Type
             )
         }
 
+        Type::Forall(vars, body) => 
+        { 
+            let filtered_subst: Substitution = subst
+                .iter() 
+                .filter(|(k, _) | !vars.contains(k))
+                .map(|(k, v) | (k.clone(), v.clone()))
+                .collect();
+            
+            Type::Forall(vars.clone(), Box::new(apply_substitution(body, &filtered_subst)))
+        }
+
         _ => ty.clone(),
     }
 }
@@ -164,6 +175,18 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
             let s1 = unify(&expand_type_alias(param1, aliases), &expand_type_alias(param2, aliases), aliases)?;
             let s2 = unify(&apply_substitution(ret1, &s1), &apply_substitution(ret2, &s1), aliases)?;
             Ok(compose_substitutions(s1, s2))
+        }
+
+        // forall types 
+        (Type::Forall(vars, body), ty) | (ty, Type::Forall(vars, body)) => {
+            // Instantiate the forall type with fresh variables
+            let mut subst = Substitution::new();
+            let mut generator = TypeVarGenerator::new();
+            for v in vars {
+                subst.insert(v.clone(), generator.fresh());
+            }
+            let instantiated = apply_substitution(body, &subst);
+            unify(&instantiated, ty, aliases)
         }
 
         // can't unify
@@ -556,11 +579,21 @@ impl Expr
 fn free_type_vars(ty: &Type) -> HashSet<String> {
     match ty {
         Type::TypeVar(name) => HashSet::from([name.clone()]),
+       
         Type::Function(param, ret) => {
             let mut vars = free_type_vars(param);
             vars.extend(free_type_vars(ret));
             vars
         }
+
+        Type::Forall(vars, body) => {
+            let mut free = free_type_vars(body);
+            for v in vars {
+                free.remove(v);
+            }
+            free
+        }
+
         _ => HashSet::new(),
     }
 }

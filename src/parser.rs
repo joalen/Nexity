@@ -394,6 +394,34 @@ impl<'a> Parser<'a>
     }
 
     fn parse_type(&mut self) -> Option<Type> {
+        // check for the forall operator 
+        if self.current_token == Token::ReserveTok(ReservedToken::Forall)
+        { 
+            self.next_token(); // consume 'forall' 
+
+            let mut vars = Vec::new();
+            while let Token::Identifier(v) = &self.current_token
+            { 
+                if v.chars().next().unwrap().is_lowercase()
+                {
+                    vars.push(v.clone());
+                    self.next_token();
+                } else { 
+                    break;
+                }
+            }
+
+            if self.current_token != Token::Char('.') 
+            { 
+                return None;
+            }
+
+            self.next_token(); // consume the '.'
+
+            let inner_type = self.parse_type()?;
+            return Some(Type::Forall(vars, Box::new(inner_type)));
+        }
+
         match &self.current_token {
             Token::Identifier(name) => {
                 let ty = match name.as_str() {
