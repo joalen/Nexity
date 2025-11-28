@@ -794,22 +794,39 @@ pub fn expand_type_alias_guarded(
                     let num_params = params.len();
                     let num_args = args.len();
                     
-                    if num_args == num_params {
+                    if num_args >= num_params {
                         let mut subst = HashMap::new();
                         for (param, arg) in params.iter().zip(args.iter()) {
                             subst.insert(param.clone(), arg.clone());
                         }
                         
                         let expanded_body = apply_substitution(body, &subst);
-                        
-                        return match expanded_body {
-                            Type::Apply(ctor, inner_args) => Type::Apply(
-                                Box::new(expand_type_alias_guarded(&ctor, aliases, depth + 1, max_depth)),
-                                inner_args.iter().map(|a| expand_type_alias_guarded(a, aliases, depth + 1, max_depth)).collect()
-                            ),
-                            other => expand_type_alias_guarded(&other, aliases, depth + 1, max_depth)
+                        let remaining_args: Vec<Type> = args[num_params..].to_vec();
+                    
+                        // If there are remaining args, merge them with the expanded body
+                        let to_expand = if !remaining_args.is_empty() {
+                            match expanded_body {
+                                Type::Apply(ctor, mut inner_args) => {
+                                    // Merge: Pair [Int] + [String] = Pair [Int, String]
+                                    inner_args.extend(remaining_args);
+                                    Type::Apply(ctor, inner_args)
+                                }
+                                Type::Custom(name) => {
+                                    // Direct constructor: Pair + [String] = Pair [String]
+                                    Type::Apply(Box::new(Type::Custom(name)), remaining_args)
+                                }
+                                other => {
+                                    // Can't apply to non-constructor
+                                    Type::Apply(Box::new(other), remaining_args)
+                                }
+                            }
+                        } else {
+                            expanded_body
                         };
-                    } else if num_args < num_params {
+                    
+                        // Now expand the result
+                        return expand_type_alias_guarded(&to_expand, aliases, depth + 1, max_depth);
+                    } else {
                         // Partially applied - create lambda abstraction
                         return Type::Apply(
                             constructor.clone(),

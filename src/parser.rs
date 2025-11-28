@@ -422,7 +422,8 @@ impl<'a> Parser<'a>
             return Some(Type::Forall(vars, Box::new(inner_type)));
         }
 
-        match &self.current_token {
+        // Parse base type
+        let mut base_ty = match &self.current_token {
             Token::Identifier(name) => {
                 let ty = match name.as_str() {
                     "Int" => Type::Int,
@@ -432,16 +433,64 @@ impl<'a> Parser<'a>
                     _ => Type::Custom(name.clone()),
                 };
                 self.next_token();
-                
-                // Handle function types: a -> b
-                if self.current_token == Token::Arrow {
+                ty
+            }
+
+            Token::Char('(') => {
+                self.next_token();
+                let inner = self.parse_type()?;
+                if self.current_token == Token::Char(')') {
                     self.next_token();
-                    let ret = self.parse_type()?;
-                    return Some(Type::Function(Box::new(ty), Box::new(ret)));
                 }
+                inner
+            }
+            _ => return None,
+        };
+
+        // collect type argumentss (for type application)
+        let mut args = Vec::new();
+        while let Some(arg) = self.try_parse_type_arg() {
+            args.push(arg);
+        }
+
+        // If we have arguments, wrap in a Type::Apply
+        if !args.is_empty() {
+            base_ty = Type::Apply(Box::new(base_ty), args);
+        }
+
+        if self.current_token == Token::Arrow {
+            self.next_token();
+            let ret = self.parse_type()?;
+            return Some(Type::Function(Box::new(base_ty), Box::new(ret)));
+        }
+
+        Some(base_ty)
+    }
+
+    fn try_parse_type_arg(&mut self) -> Option<Type> {
+        match &self.current_token {
+            Token::Identifier(name) if name.chars().next().unwrap().is_lowercase() => {
+                // Could be a type variable
+                let ty = Type::TypeVar(name.clone());
+                self.next_token();
                 Some(ty)
             }
-            _ => None,
+            Token::Identifier(name) if name.chars().next().unwrap().is_uppercase() => {
+                // Could be a type constructor
+                let ty = Type::Custom(name.clone());
+                self.next_token();
+                Some(ty)
+            }
+            Token::Char('(') => {
+                // Parenthesized type
+                self.next_token();
+                let inner = self.parse_type()?;
+                if self.current_token == Token::Char(')') {
+                    self.next_token();
+                }
+                Some(inner)
+            }
+            _ => None
         }
     }
 
