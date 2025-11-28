@@ -552,3 +552,57 @@ fn test_gadt_if() {
     let result = type_infer.infer(&Expr::Identifier("test".to_string()));
     println!("GADT If constructor test: {:?}", result);
 }
+
+#[test]
+fn test_partial_application()
+{ 
+    let mut type_infer = TypeInference::new();
+    
+    type_infer.type_aliases.insert(
+        "Pair".to_string(), 
+        (
+            vec!["a".to_string(), "b".to_string()], 
+            Type::Apply(
+                Box::new(Type::Custom("Tuple2".to_string())),
+                vec![Type::TypeVar("a".to_string()), Type::TypeVar("b".to_string())]
+            )
+        )
+    );
+
+    // Fully applied (sanity check): Pair Int String
+    let pair_full = Type::Apply(
+        Box::new(Type::Custom("Pair".to_string())),
+        vec![Type::Int, Type::Custom("String".to_string())]
+    );
+
+    // Partially applied: Pair Int
+    let pair_partial = Type::Apply(
+        Box::new(Type::Custom("Pair".to_string())),
+        vec![Type::Int]
+    );
+
+    // now expected expansions 
+    let expected_full = Type::Apply(
+        Box::new(Type::Custom("Tuple2".to_string())),
+        vec![Type::Int, Type::Custom("String".to_string())]
+    );
+
+    let expected_partial = Type::Apply(
+        Box::new(Type::Custom("Pair".to_string())),
+        vec![Type::Int]
+    );
+
+    // fully applied should expand
+    assert_eq!(
+        expand_type_alias(&pair_full, &type_infer.type_aliases),
+        expected_full,
+        "Fully applied Pair should expand to Tuple2<Int, String>"
+    );
+    
+    // partially applied should not
+    assert_eq!(
+        expand_type_alias(&pair_partial, &type_infer.type_aliases),
+        expected_partial,
+        "Partially applied Pair should not expand"
+    );
+}

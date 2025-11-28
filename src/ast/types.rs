@@ -124,6 +124,17 @@ pub fn apply_substitution(ty: &Type, subst: &Substitution) -> Type
             Type::Forall(vars.clone(), Box::new(apply_substitution(body, &filtered_subst)))
         }
 
+        Type::Apply(ctor, args) => {
+            Type::Apply(
+                Box::new(apply_substitution(ctor, subst)),
+                args.iter().map(|arg| apply_substitution(arg, subst)).collect()
+            )
+        }
+
+        Type::Constrained(constraints, inner) => {
+            Type::Constrained(constraints.clone(), Box::new(apply_substitution(inner, subst)))
+        }
+
         _ => ty.clone(),
     }
 }
@@ -712,43 +723,7 @@ pub fn generalize(env: &TypeEnv, ty: &Type, constraints: Vec<Constraint>) -> Typ
 }
 
 pub fn expand_type_alias(ty: &Type, aliases: &HashMap<String, (Vec<String>, Type)>) -> Type {
-    match ty {
-        Type::Custom(name) => {
-            if let Some((params, body)) = aliases.get(name) {
-                if params.is_empty() {
-                    expand_type_alias(body, aliases)
-                } else {
-                    ty.clone()
-                }
-            } else {
-                ty.clone()
-            }
-        }
-
-        Type::Apply(constructor, args) => {
-            if let Type::Custom(name) = &**constructor {
-                if let Some((params, body)) = aliases.get(name) {
-                    if params.len() == args.len() {
-                        let mut subst = HashMap::new();
-                        for (param, arg) in params.iter().zip(args.iter()) {
-                            subst.insert(param.clone(), arg.clone());
-                        }
-                        return expand_type_alias(&apply_substitution(body, &subst), aliases);
-                    }
-                }
-            }
-            Type::Apply(
-                Box::new(expand_type_alias(constructor, aliases)),
-                args.iter().map(|a| expand_type_alias(a, aliases)).collect()
-            )
-        }
-
-        Type::Function(a, b) => Type::Function(
-            Box::new(expand_type_alias(a, aliases)),
-            Box::new(expand_type_alias(b, aliases))
-        ),
-        _ => ty.clone()
-    }
+    expand_type_alias_guarded(ty, aliases, 0, 10)
 }
 
 pub fn solve_constraints(
@@ -785,4 +760,76 @@ pub fn solve_constraints(
     }
     
     Ok(unsolved)
+}
+
+pub fn expand_type_alias_guarded(
+    ty: &Type, 
+    aliases: &HashMap<String, (Vec<String>, Type)>,
+    depth: usize,
+    max_depth: usize
+) -> Type {
+    if depth > max_depth {
+        return ty.clone();
+    }
+
+    match ty {
+        Type::Custom(name) => {
+            if let Some((params, body)) = aliases.get(name) {
+                if params.is_empty() {
+                    match body {
+                        Type::Apply(_, _) => ty.clone(),
+                        _ => expand_type_alias_guarded(body, aliases, depth + 1, max_depth)
+                    }
+                } else {
+                    ty.clone() // Has params but not applied - keep as is
+                }
+            } else {
+                ty.clone()
+            }
+        }
+
+        Type::Apply(constructor, args) => {
+            if let Type::Custom(name) = &**constructor {
+                if let Some((params, body)) = aliases.get(name) {
+                    let num_params = params.len();
+                    let num_args = args.len();
+                    
+                    if num_args == num_params {
+                        let mut subst = HashMap::new();
+                        for (param, arg) in params.iter().zip(args.iter()) {
+                            subst.insert(param.clone(), arg.clone());
+                        }
+                        
+                        let expanded_body = apply_substitution(body, &subst);
+                        
+                        return match expanded_body {
+                            Type::Apply(ctor, inner_args) => Type::Apply(
+                                Box::new(expand_type_alias_guarded(&ctor, aliases, depth + 1, max_depth)),
+                                inner_args.iter().map(|a| expand_type_alias_guarded(a, aliases, depth + 1, max_depth)).collect()
+                            ),
+                            other => expand_type_alias_guarded(&other, aliases, depth + 1, max_depth)
+                        };
+                    } else if num_args < num_params {
+                        // Partially applied - create lambda abstraction
+                        return Type::Apply(
+                            constructor.clone(),
+                            args.iter().map(|a| expand_type_alias_guarded(a, aliases, depth, max_depth)).collect()
+                        );
+                    }
+                }
+            }
+            
+            Type::Apply(
+                Box::new(expand_type_alias_guarded(constructor, aliases, depth, max_depth)),
+                args.iter().map(|a| expand_type_alias_guarded(a, aliases, depth, max_depth)).collect()
+            )
+        }
+
+        Type::Function(a, b) => Type::Function(
+            Box::new(expand_type_alias_guarded(a, aliases, depth, max_depth)),
+            Box::new(expand_type_alias_guarded(b, aliases, depth, max_depth))
+        ),
+        
+        _ => ty.clone()
+    }
 }
