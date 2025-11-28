@@ -190,6 +190,29 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
             unify(&instantiated, ty, aliases)
         }
 
+        // applying types 
+        (Type::Apply(ctor1, args1), Type::Apply(ctor2, args2)) => {
+            let s1 = unify(ctor1, ctor2, aliases)?;
+            
+            if args1.len() != args2.len() {
+                return Err("Type application arity mismatch".into());
+            }
+            
+            let mut subst = s1;
+            for (a1, a2) in args1.iter().zip(args2.iter()) {
+                let s = unify(
+                    &apply_substitution(a1, &subst),
+                    &apply_substitution(a2, &subst),
+                    aliases
+                )?;
+                subst = compose_substitutions(s, subst);
+            }
+            Ok(subst)
+        }
+
+        // custom types
+        (Type::Custom(name1), Type::Custom(name2)) if name1 == name2 => Ok(Substitution::new()),
+
         // can't unify
         _ => Err(format!("Cannot unify types {:?} and {:?}", t1, t2)),
     }
@@ -321,6 +344,12 @@ impl Expr
         Expr::Float(_) => Ok((Type::Float, vec![])),
         Expr::Bool(_) => Ok((Type::Bool, vec![])),
         Expr::String(_) => Ok((Type::Custom("String".to_string()), vec![])),
+
+        Expr::Not(expr) => {
+            let (ty, constraints) = expr.infer_type(env, type_var_gen, adt_env, type_aliases)?;
+            unify(&ty, &Type::Bool, type_aliases)?;
+            Ok((Type::Bool, constraints))
+        }
 
         Expr::Identifier(name) => 
         { 

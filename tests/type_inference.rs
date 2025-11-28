@@ -275,7 +275,7 @@ fn test_match_guard_must_be_bool()
 fn test_match_generalization_with_identity()
 { 
     let expr = Expr::Match(
-        Box::new(Expr::Int(10)),
+        Box::new(Expr::Lambda(vec!["x".into()], Box::new(Expr::Identifier("x".into())))), // Identity function
         vec![(
             Pattern::Variable("id".into()),
             None,
@@ -294,7 +294,6 @@ fn test_match_generalization_with_identity()
             )
         )]
     );
-
     let mut infer = TypeInference::new();
     let result = infer.infer(&expr);
     assert!(result.is_ok());
