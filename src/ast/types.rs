@@ -51,6 +51,7 @@ pub struct Variant
 { 
     pub name: String,
     pub arg_types: Vec<Type>,
+    pub result_ty: Option<Type>,
 }
 
 pub enum Item 
@@ -293,10 +294,10 @@ impl TypeInference
                 { 
                     name: name.clone(),
                     type_params: type_params.clone(),
-                    variants: constructors.iter().map(|c| Variant 
-                    { 
-                        name: c.name.clone(), 
-                        arg_types: c.fields.clone()
+                    variants: constructors.iter().map(|c| Variant {
+                        name: c.name.clone(),
+                        arg_types: c.fields.clone(),
+                        result_ty: c.result_ty.clone(), // Pass through GADT result type
                     }).collect(),
                 });
             }
@@ -534,15 +535,20 @@ impl Expr
             for (pattern, guard, body) in arms 
             { 
                 let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
-                unify(&scrutinee_ty, &pat_ty, type_aliases)?;
+                let subst = unify(&scrutinee_ty, &pat_ty, type_aliases)?;
 
                 let mut local_env = env.clone();
-                for (name, ty) in bindings
-                { 
-                    let scheme = generalize(env, &ty, vec![]);
-                    local_env.insert(name, scheme);
+                for (name, scheme) in local_env.iter_mut() {
+                    scheme.ty = apply_substitution(&scheme.ty, &subst);
                 }
 
+                for (name, ty) in bindings
+                { 
+                    let refined_ty = apply_substitution(&ty, &subst);
+                    let scheme = generalize(&local_env, &refined_ty, vec![]);
+                    local_env.insert(name, scheme);
+                }
+        
                 if let Some(g) = guard 
                 { 
                     let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen, adt_env, type_aliases)?;
@@ -552,7 +558,8 @@ impl Expr
 
                 let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env, type_aliases)?;
                 all_constraints.extend(body_constraints);
-                arm_tys.push(body_ty);
+
+                arm_tys.push(apply_substitution(&body_ty, &subst));
             }
 
             let first = arm_tys[0].clone();
@@ -635,22 +642,27 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                         }
                         
                         // Infer subpatterns
-                        for (i, pat) in subpatterns.iter().enumerate() {
-                            let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                        for (_i, pat) in subpatterns.iter().enumerate() {
+                            let (_pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
                             bindings.extend(pat_bindings);
                             // Could unify pat_ty with variant.arg_types[i] here
                         }
                         
                         // Build result type
-                        let result_ty = if type_decl.type_params.is_empty() {
-                            Type::Custom(type_decl.name.clone())
-                        } else {
-                            Type::Apply(
-                                Box::new(Type::Custom(type_decl.name.clone())),
-                                type_decl.type_params.iter()
-                                    .map(|_| type_var_gen.fresh())
-                                    .collect()
-                            )
+                        // GADT: use explicit result type if present
+                        let result_ty = if let Some(ref gadt_result) = variant.result_ty {
+                            gadt_result.clone()
+                        } else { // Normal ADT: build result type
+                            if type_decl.type_params.is_empty() {
+                                Type::Custom(type_decl.name.clone())
+                            } else {
+                                Type::Apply(
+                                    Box::new(Type::Custom(type_decl.name.clone())),
+                                    type_decl.type_params.iter()
+                                        .map(|_| type_var_gen.fresh())
+                                        .collect()
+                                )
+                            }
                         };
                         
                         return (result_ty, bindings);

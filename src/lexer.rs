@@ -201,6 +201,7 @@ impl<'a> Lexer<'a> {
             "False" => Token::ReserveTok(ReservedToken::False),
             "type" => Token::ReserveTok(ReservedToken::Type),
             "forall" => Token::ReserveTok(ReservedToken::Forall),
+            "where" => Token::ReserveTok(ReservedToken::Where),
             _ => Token::Identifier(identifier),
         }
     }

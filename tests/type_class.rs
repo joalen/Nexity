@@ -101,10 +101,12 @@ fn test_maybe_adt() {
                 Variant {
                     name: "Nothing".to_string(),
                     arg_types: vec![],
+                    result_ty: None
                 },
                 Variant {
                     name: "Just".to_string(),
                     arg_types: vec![Type::TypeVar("a".to_string())],
+                    result_ty: None
                 },
             ],
         },
@@ -138,7 +140,7 @@ fn test_list_adt() {
         "List".to_string(),
         vec!["a".to_string()],
         vec![
-            Constructor { name: "Nil".to_string(), fields: vec![] },
+            Constructor { name: "Nil".to_string(), fields: vec![], result_ty: None },
             Constructor { 
                 name: "Cons".to_string(), 
                 fields: vec![
@@ -148,6 +150,7 @@ fn test_list_adt() {
                         vec![Type::TypeVar("a".to_string())],
                     ),
                 ],
+                result_ty: None
             },
         ]
     );
@@ -175,8 +178,8 @@ fn test_kind_checking()
         "Maybe".to_string(),
         vec!["a".to_string()],
         vec![
-            Constructor { name: "Just".to_string(), fields: vec![Type::TypeVar("a".to_string())] },
-            Constructor { name: "Nothing".to_string(), fields: vec![] }
+            Constructor { name: "Just".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None},
+            Constructor { name: "Nothing".to_string(), fields: vec![], result_ty: None}
         ]
     );
     type_infer.register_decl(&maybe_decl);
@@ -210,8 +213,8 @@ fn test_kind_checking()
         "Either".to_string(),
         vec!["a".to_string(), "b".to_string()],
         vec![
-            Constructor { name: "Left".to_string(), fields: vec![Type::TypeVar("a".to_string())] },
-            Constructor { name: "Right".to_string(), fields: vec![Type::TypeVar("b".to_string())] }
+            Constructor { name: "Left".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None },
+            Constructor { name: "Right".to_string(), fields: vec![Type::TypeVar("b".to_string())], result_ty: None },
         ]
     );
     type_infer.register_decl(&either_decl);
