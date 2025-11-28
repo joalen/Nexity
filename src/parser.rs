@@ -593,6 +593,12 @@ impl<'a> Parser<'a>
             }
         }
 
+        // check for GADTs
+        if self.current_token == Token::ReserveTok(ReservedToken::Where)
+        { 
+            return self.parse_gadt(name, type_params);
+        }
+
         // Expect the equal sign
         if self.current_token != Token::Equals 
         { 
@@ -646,7 +652,7 @@ impl<'a> Parser<'a>
                 fields.push(ty);
             }
 
-            constructors.push(Constructor { name: ctor_name, fields });
+            constructors.push(Constructor { name: ctor_name, fields, result_ty: None });
 
             // check for the '|' to see if we continue or break 
             if self.current_token == Token::Char('|') 
@@ -659,6 +665,67 @@ impl<'a> Parser<'a>
 
         Some(Decl::Data(name, type_params, constructors))
 
+    }
+
+    fn parse_gadt(&mut self, name: String, type_params: Vec<String>) -> Option<Decl> 
+    { 
+        self.next_token(); // consume the 'where' 
+
+        if self.current_token != Token::Char('{') 
+        { 
+            return None;
+        }
+
+        self.next_token(); // consume '{'
+
+        let mut constructors = Vec::new();
+
+        while self.current_token != Token::Char('}')
+        { 
+            let ctor_name = match &self.current_token {
+                Token::Identifier(n) => n.clone(),
+                _ => break,
+            };
+
+            self.next_token(); // consume constructor name 
+
+            if self.current_token != Token::DoubleColon
+            { 
+                return None;
+            }
+
+            self.next_token();
+
+            let full_type = self.parse_type()?;
+
+            let (fields, result_ty) = self.decompose_function_type(full_type);
+
+            constructors.push(Constructor {
+                name: ctor_name,
+                fields,
+                result_ty: Some(result_ty),
+            });
+
+            if self.current_token == Token::Char(';') {
+                self.next_token();
+            }
+        }
+
+        self.next_token();
+        Some(Decl::Data(name, type_params, constructors))
+    }
+
+    fn decompose_function_type(&self, ty: Type) -> (Vec<Type>, Type)
+    { 
+        let mut fields = Vec::new();
+        let mut current = ty;
+        
+        while let Type::Function(param, ret) = current {
+            fields.push(*param);
+            current = *ret;
+        }
+        
+        (fields, current)
     }
 
     fn parse_type_alias(&mut self) -> Option<Decl>

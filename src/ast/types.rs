@@ -51,6 +51,7 @@ pub struct Variant
 { 
     pub name: String,
     pub arg_types: Vec<Type>,
+    pub result_ty: Option<Type>,
 }
 
 pub enum Item 
@@ -189,6 +190,29 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
             unify(&instantiated, ty, aliases)
         }
 
+        // applying types 
+        (Type::Apply(ctor1, args1), Type::Apply(ctor2, args2)) => {
+            let s1 = unify(ctor1, ctor2, aliases)?;
+            
+            if args1.len() != args2.len() {
+                return Err("Type application arity mismatch".into());
+            }
+            
+            let mut subst = s1;
+            for (a1, a2) in args1.iter().zip(args2.iter()) {
+                let s = unify(
+                    &apply_substitution(a1, &subst),
+                    &apply_substitution(a2, &subst),
+                    aliases
+                )?;
+                subst = compose_substitutions(s, subst);
+            }
+            Ok(subst)
+        }
+
+        // custom types
+        (Type::Custom(name1), Type::Custom(name2)) if name1 == name2 => Ok(Substitution::new()),
+
         // can't unify
         _ => Err(format!("Cannot unify types {:?} and {:?}", t1, t2)),
     }
@@ -293,10 +317,10 @@ impl TypeInference
                 { 
                     name: name.clone(),
                     type_params: type_params.clone(),
-                    variants: constructors.iter().map(|c| Variant 
-                    { 
-                        name: c.name.clone(), 
-                        arg_types: c.fields.clone()
+                    variants: constructors.iter().map(|c| Variant {
+                        name: c.name.clone(),
+                        arg_types: c.fields.clone(),
+                        result_ty: c.result_ty.clone(), // Pass through GADT result type
                     }).collect(),
                 });
             }
@@ -320,6 +344,12 @@ impl Expr
         Expr::Float(_) => Ok((Type::Float, vec![])),
         Expr::Bool(_) => Ok((Type::Bool, vec![])),
         Expr::String(_) => Ok((Type::Custom("String".to_string()), vec![])),
+
+        Expr::Not(expr) => {
+            let (ty, constraints) = expr.infer_type(env, type_var_gen, adt_env, type_aliases)?;
+            unify(&ty, &Type::Bool, type_aliases)?;
+            Ok((Type::Bool, constraints))
+        }
 
         Expr::Identifier(name) => 
         { 
@@ -534,15 +564,20 @@ impl Expr
             for (pattern, guard, body) in arms 
             { 
                 let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
-                unify(&scrutinee_ty, &pat_ty, type_aliases)?;
+                let subst = unify(&scrutinee_ty, &pat_ty, type_aliases)?;
 
                 let mut local_env = env.clone();
-                for (name, ty) in bindings
-                { 
-                    let scheme = generalize(env, &ty, vec![]);
-                    local_env.insert(name, scheme);
+                for (name, scheme) in local_env.iter_mut() {
+                    scheme.ty = apply_substitution(&scheme.ty, &subst);
                 }
 
+                for (name, ty) in bindings
+                { 
+                    let refined_ty = apply_substitution(&ty, &subst);
+                    let scheme = generalize(&local_env, &refined_ty, vec![]);
+                    local_env.insert(name, scheme);
+                }
+        
                 if let Some(g) = guard 
                 { 
                     let (guard_ty, guard_constraints) = g.infer_type(&mut local_env, type_var_gen, adt_env, type_aliases)?;
@@ -552,7 +587,8 @@ impl Expr
 
                 let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env, type_aliases)?;
                 all_constraints.extend(body_constraints);
-                arm_tys.push(body_ty);
+
+                arm_tys.push(apply_substitution(&body_ty, &subst));
             }
 
             let first = arm_tys[0].clone();
@@ -635,22 +671,27 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                         }
                         
                         // Infer subpatterns
-                        for (i, pat) in subpatterns.iter().enumerate() {
-                            let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                        for (_i, pat) in subpatterns.iter().enumerate() {
+                            let (_pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
                             bindings.extend(pat_bindings);
                             // Could unify pat_ty with variant.arg_types[i] here
                         }
                         
                         // Build result type
-                        let result_ty = if type_decl.type_params.is_empty() {
-                            Type::Custom(type_decl.name.clone())
-                        } else {
-                            Type::Apply(
-                                Box::new(Type::Custom(type_decl.name.clone())),
-                                type_decl.type_params.iter()
-                                    .map(|_| type_var_gen.fresh())
-                                    .collect()
-                            )
+                        // GADT: use explicit result type if present
+                        let result_ty = if let Some(ref gadt_result) = variant.result_ty {
+                            gadt_result.clone()
+                        } else { // Normal ADT: build result type
+                            if type_decl.type_params.is_empty() {
+                                Type::Custom(type_decl.name.clone())
+                            } else {
+                                Type::Apply(
+                                    Box::new(Type::Custom(type_decl.name.clone())),
+                                    type_decl.type_params.iter()
+                                        .map(|_| type_var_gen.fresh())
+                                        .collect()
+                                )
+                            }
                         };
                         
                         return (result_ty, bindings);

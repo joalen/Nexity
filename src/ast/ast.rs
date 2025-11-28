@@ -26,6 +26,7 @@ pub struct MethodImpl {
 pub struct Constructor {
     pub name: String,
     pub fields: Vec<Type>,
+    pub result_ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
