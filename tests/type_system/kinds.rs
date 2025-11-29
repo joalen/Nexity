@@ -10,8 +10,8 @@ fn test_kind_checking()
         "Maybe".to_string(),
         vec!["a".to_string()],
         vec![
-            Constructor { name: "Just".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None, existential_vars: vec![],},
-            Constructor { name: "Nothing".to_string(), fields: vec![], result_ty: None, existential_vars: vec![],}
+            Constructor { name: "Just".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None, existential_vars: vec![], existential_constraints: vec![] },
+            Constructor { name: "Nothing".to_string(), fields: vec![], result_ty: None, existential_vars: vec![], existential_constraints: vec![] }
         ]
     );
     type_infer.register_decl(&maybe_decl);
@@ -45,8 +45,8 @@ fn test_kind_checking()
         "Either".to_string(),
         vec!["a".to_string(), "b".to_string()],
         vec![
-            Constructor { name: "Left".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None, existential_vars: vec![], },
-            Constructor { name: "Right".to_string(), fields: vec![Type::TypeVar("b".to_string())], result_ty: None, existential_vars: vec![],},
+            Constructor { name: "Left".to_string(), fields: vec![Type::TypeVar("a".to_string())], result_ty: None, existential_vars: vec![], existential_constraints: vec![],},
+            Constructor { name: "Right".to_string(), fields: vec![Type::TypeVar("b".to_string())], result_ty: None, existential_vars: vec![], existential_constraints: vec![],},
         ]
     );
     type_infer.register_decl(&either_decl);

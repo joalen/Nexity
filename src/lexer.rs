@@ -20,6 +20,7 @@ pub enum Token {
     Pipe,
     DoubleEquals,
     DoubleColon,
+    DoubleArrow,
 }
 
 pub struct Lexer<'a> {
@@ -120,6 +121,12 @@ impl<'a> Lexer<'a> {
                 } {
                     self.next_char();
                     Token::DoubleEquals
+                } else if let Some('>') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                }{
+                    self.next_char();
+                    Token::DoubleArrow
                 } else {
                     Token::Equals
                 }

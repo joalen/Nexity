@@ -16,12 +16,14 @@ fn test_maybe_adt() {
                     arg_types: vec![],
                     result_ty: None,
                     existential_vars: vec![],
+                    existential_constraints: vec![]
                 },
                 Variant {
                     name: "Just".to_string(),
                     arg_types: vec![Type::TypeVar("a".to_string())],
                     result_ty: None,
-                    existential_vars: vec![]
+                    existential_vars: vec![],
+                    existential_constraints: vec![]
                 },
             ],
         },
@@ -55,7 +57,7 @@ fn test_list_adt() {
         "List".to_string(),
         vec!["a".to_string()],
         vec![
-            Constructor { name: "Nil".to_string(), fields: vec![], result_ty: None, existential_vars: vec![],},
+            Constructor { name: "Nil".to_string(), fields: vec![], result_ty: None, existential_vars: vec![], existential_constraints: vec![] },
             Constructor { 
                 name: "Cons".to_string(), 
                 fields: vec![
@@ -67,6 +69,7 @@ fn test_list_adt() {
                 ],
                 result_ty: None,
                 existential_vars: vec![],
+                existential_constraints: vec![]
             },
         ]
     );

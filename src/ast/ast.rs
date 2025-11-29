@@ -28,6 +28,7 @@ pub struct Constructor {
     pub fields: Vec<Type>,
     pub result_ty: Option<Type>,
     pub existential_vars: Vec<String>,
+    pub existential_constraints: Vec<Constraint>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -53,7 +54,7 @@ pub enum Type {
     Constrained(Vec<Constraint>, Box<Type>),
     Constructor(String), 
     Apply(Box<Type>, Vec<Type>),
-    Existential(Vec<String>, Box<Type>),
+    Existential(Vec<String>, Vec<Constraint>, Box<Type>),
     Forall(Vec<String>, Box<Type>),
     Rigid(String),
 }

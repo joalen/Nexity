@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, ReservedToken, Token};
-use crate::ast::ast::{BinaryOp, Constructor, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
+use crate::ast::ast::{BinaryOp, Constraint, Constructor, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
@@ -398,6 +398,7 @@ impl<'a> Parser<'a>
         if self.current_token == Token::ReserveTok(ReservedToken::Exists) {
             self.next_token(); // consume 'exists'
             
+            // collect variables
             let mut vars = Vec::new();
             while let Token::Identifier(v) = &self.current_token {
                 if v.chars().next().unwrap().is_lowercase() {
@@ -412,9 +413,34 @@ impl<'a> Parser<'a>
                 return None;
             }
             self.next_token(); // consume '.'
+
+            // collect constraints (if we have any)
+            let mut constraints = Vec::new();
+            
+            if let Token::Identifier(class_name) = &self.current_token {
+                if class_name.chars().next().unwrap().is_uppercase() {
+                    let class = class_name.clone();
+                    self.next_token();
+                    
+                    // Parse the type variable
+                    if let Token::Identifier(var) = &self.current_token {
+                        constraints.push(Constraint {
+                            class,
+                            ty: Box::new(Type::TypeVar(var.clone())),
+                        });
+                        self.next_token();
+                    }
+                    
+                    // Expect '=>'
+                    if self.current_token != Token::DoubleArrow {
+                        return None;
+                    }
+                    self.next_token(); // consume '=>'
+                }
+            }
             
             let inner_type = self.parse_type()?;
-            return Some(Type::Existential(vars, Box::new(inner_type)));
+            return Some(Type::Existential(vars, constraints, Box::new(inner_type)));
         }
 
         // check for the forall operator 
@@ -497,6 +523,7 @@ impl<'a> Parser<'a>
         Some(base_ty)
     }
 
+    // helpers
     fn try_parse_type_arg(&mut self) -> Option<Type> {
         match &self.current_token {
             Token::Identifier(name) if name.chars().next().unwrap().is_lowercase() => {
@@ -731,7 +758,7 @@ impl<'a> Parser<'a>
                 fields.push(ty);
             }
 
-            constructors.push(Constructor { name: ctor_name, fields, result_ty: None, existential_vars: vec![] });
+            constructors.push(Constructor { name: ctor_name, fields, result_ty: None, existential_vars: vec![], existential_constraints: vec![] });
 
             // check for the '|' to see if we continue or break 
             if self.current_token == Token::Char('|') 
@@ -772,9 +799,9 @@ impl<'a> Parser<'a>
 
             let full_type = self.parse_type()?;
 
-            let (existential_vars, inner_type) = match &full_type {
-                Type::Existential(vars, body) => (vars.clone(), (**body).clone()),
-                _ => (vec![], full_type.clone()),
+            let (existential_vars, constraints, inner_type) = match &full_type {
+                Type::Existential(vars, constraints, body) => (vars.clone(), constraints.clone(), (**body).clone()),
+                _ => (vec![], vec![], full_type.clone()),
             };
 
             let (fields, result_ty) = self.decompose_function_type(inner_type);
@@ -783,7 +810,8 @@ impl<'a> Parser<'a>
                 name: ctor_name,
                 fields,
                 result_ty: Some(result_ty),
-                existential_vars
+                existential_vars,
+                existential_constraints: constraints,
             });
     
             if self.current_token == Token::Char(';') {

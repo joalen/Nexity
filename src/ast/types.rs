@@ -53,6 +53,7 @@ pub struct Variant
     pub arg_types: Vec<Type>,
     pub result_ty: Option<Type>,
     pub existential_vars: Vec<String>,
+    pub existential_constraints: Vec<Constraint>, 
 }
 
 pub enum Item 
@@ -114,14 +115,14 @@ pub fn apply_substitution(ty: &Type, subst: &Substitution) -> Type
             )
         }
 
-        Type::Existential(vars, body) => {
+        Type::Existential(vars, constraints, body) => {
             let filtered_subst: Substitution = subst
                 .iter()
                 .filter(|(k, _)| !vars.contains(k))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             
-            Type::Existential(vars.clone(), Box::new(apply_substitution(body, &filtered_subst)))
+            Type::Existential(vars.clone(), constraints.clone(), Box::new(apply_substitution(body, &filtered_subst)))
         }
 
         Type::Forall(vars, body) => 
@@ -201,7 +202,7 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
         }
 
         // Existential unpacking: ∃a. T becomes a fresh type variable
-        (Type::Existential(vars, body), ty) | (ty, Type::Existential(vars, body)) => {
+        (Type::Existential(vars, constraints, body), ty) | (ty, Type::Existential(vars, constraints, body)) => {
             let mut subst = Substitution::new();
             let mut generator = TypeVarGenerator::new();
             for v in vars {
@@ -361,6 +362,7 @@ impl TypeInference
                         arg_types: c.fields.clone(),
                         result_ty: c.result_ty.clone(), // Pass through GADT result type
                         existential_vars: c.existential_vars.clone(),
+                        existential_constraints: c.existential_constraints.clone(),
                     }).collect(),
                 });
             }
@@ -419,7 +421,7 @@ impl Expr
                                 Type::Function(Box::new(field.clone()), Box::new(acc))
                             });
 
-                            return Ok((ctor_ty, vec![]));
+                            return Ok((ctor_ty, variant.existential_constraints.clone()));
                         }
                     }
                 }
@@ -590,10 +592,15 @@ impl Expr
             
             let result_ty = type_var_gen.fresh();
             let func_expected_ty = Type::Function(Box::new(arg_ty), Box::new(result_ty.clone()));
-        
             let subst = unify(&func_ty, &func_expected_ty, type_aliases)?;
+
+            let mut result_constraints = func_constraints.clone();
+            result_constraints = result_constraints.iter().map(|c| Constraint {
+                class: c.class.clone(),
+                ty: Box::new(apply_substitution(&c.ty, &subst)),
+            }).collect();            
             
-            Ok((apply_substitution(&result_ty, &subst), func_constraints))
+            Ok((apply_substitution(&result_ty, &subst), result_constraints))
         }
 
         Expr::Match(scrutinee, arms) => 
@@ -603,7 +610,9 @@ impl Expr
 
             for (pattern, guard, body) in arms 
             { 
-                let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
+                let (pat_ty, bindings, pat_constraints) = infer_pattern(pattern, type_var_gen, adt_env);
+                all_constraints.extend(pat_constraints);
+
                 let subst = unify(&scrutinee_ty, &pat_ty, type_aliases)?;
                 let mut local_env = env.clone();
 
@@ -662,7 +671,7 @@ fn free_type_vars(ty: &Type) -> HashSet<String> {
             vars
         }
 
-        Type::Existential(vars, body) => {
+        Type::Existential(vars, _constraints, body) => {
             let mut free = free_type_vars(body);
             for v in vars {
                 free.remove(v);
@@ -688,28 +697,29 @@ fn free_type_vars_in_env(env: &TypeEnv) -> HashSet<String> {
         .collect()
 }
 
-pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> (Type, Vec<(String, Type)>) 
+pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt_env: &HashMap<String, TypeDecl>) -> (Type, Vec<(String, Type)>, Vec<Constraint>) 
 {
     match pattern {
         Pattern::Literal(n) => {
             if n.fract() == 0.0 {
-                (Type::Int, vec![])
+                (Type::Int, vec![], vec![])
             } else {
-                (Type::Float, vec![])
+                (Type::Float, vec![], vec![])
             }
         }
 
         Pattern::Variable(name) => {
             let tv = type_var_gen.fresh();
-            (tv.clone(), vec![(name.clone(), tv)])
+            (tv.clone(), vec![(name.clone(), tv)], vec![])
         }
 
         Pattern::Wildcard => {
-            (type_var_gen.fresh(), vec![])
+            (type_var_gen.fresh(), vec![], vec![])
         }
 
         Pattern::Constructor(name, subpatterns) => {
             let mut bindings = vec![];
+            let mut constraints = vec![];
 
             for type_decl in adt_env.values() { // get constructor from env
                 for variant in &type_decl.variants {
@@ -727,6 +737,14 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                             subst.insert(ex_var.clone(), rigid_var);
                         }
 
+                        for constraint in &variant.existential_constraints {
+                            let instantiated_constraint = Constraint {
+                                class: constraint.class.clone(),
+                                ty: Box::new(apply_substitution(&constraint.ty, &subst)),
+                            };
+                            constraints.push(instantiated_constraint);
+                        }
+
                         // apply to field types (for freshened existentials)
                         for (i, pat) in subpatterns.iter().enumerate() {
                             let field_ty = apply_substitution(&variant.arg_types[i], &subst);
@@ -738,8 +756,9 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                                     bindings.push((var_name.clone(), field_ty));
                                 }
                                 _ => {
-                                    let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                                    let (pat_ty, pat_bindings, pat_constraints) = infer_pattern(pat, type_var_gen, adt_env);
                                     bindings.extend(pat_bindings);
+                                    constraints.extend(pat_constraints);
                                     // Could unify pat_ty with field_ty here
                                 }
                             }
@@ -762,7 +781,7 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                             }
                         };
                         
-                        return (result_ty, bindings);
+                        return (result_ty, bindings, constraints);
                     }
                 }
             }
@@ -845,8 +864,9 @@ pub fn expand_type_alias_guarded(
             }
         }
 
-        Type::Existential(vars, body) => Type::Existential(
+        Type::Existential(vars, constraints, body) => Type::Existential(
             vars.clone(),
+            constraints.clone(),
             Box::new(expand_type_alias_guarded(body, aliases, depth, max_depth))
         ),
         

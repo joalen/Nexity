@@ -21,6 +21,7 @@ fn test_basic_gadt() {
                         vec![Type::Int]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -30,6 +31,7 @@ fn test_basic_gadt() {
                         vec![Type::Bool]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
             ],
         },
@@ -86,6 +88,7 @@ fn test_gadt_eval() {
                         vec![Type::Int]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -95,6 +98,7 @@ fn test_gadt_eval() {
                         vec![Type::Bool]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
             ],
         },
@@ -149,6 +153,7 @@ fn test_gadt_if() {
                         vec![Type::Int]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -158,6 +163,7 @@ fn test_gadt_if() {
                         vec![Type::Bool]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
                 Variant {
                     name: "If".to_string(),
@@ -174,6 +180,7 @@ fn test_gadt_if() {
                         vec![Type::TypeVar("a".to_string())]
                     )),
                     existential_vars: vec![],
+                    existential_constraints: vec![],
                 },
             ],
         },

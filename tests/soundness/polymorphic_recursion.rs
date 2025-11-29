@@ -13,11 +13,6 @@ fn infer_type_of(input: &str) -> Result<(Type, Vec<Constraint>), String> {
     infer.infer(&expr)
 }
 
-fn infer(input: &str) -> Type {
-    let (ty, _) = infer_type_of(input).expect("Type inference failed");
-    ty
-}
-
 #[test]
 fn test_reject_polymorphic_recursion() {
     let code = r#"

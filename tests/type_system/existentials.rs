@@ -11,6 +11,7 @@ fn test_basic_existential_parsing() {
         ty,
         Type::Existential(
             vec!["a".to_string()],
+            vec![],
             Box::new(Type::Function(
                 Box::new(Type::TypeVar("a".to_string())),
                 Box::new(Type::Int)
@@ -54,6 +55,7 @@ fn test_existential_type_hiding() {
             fields: vec![Type::TypeVar("a".to_string())],
             result_ty: Some(Type::Custom("Box".to_string())),
             existential_vars: vec!["a".to_string()],
+            existential_constraints: vec![]
         }]
     );
     type_infer.register_decl(&box_decl);
@@ -91,6 +93,7 @@ fn test_existential_unpacking_pattern_match() {
             fields: vec![Type::TypeVar("a".to_string())],
             result_ty: Some(Type::Custom("Box".to_string())),
             existential_vars: vec!["a".to_string()],
+            existential_constraints: vec![]
         }]
     );
     type_infer.register_decl(&box_decl);
@@ -124,6 +127,7 @@ fn test_multiple_existential_vars() {
         ty,
         Type::Existential(
             vec!["a".to_string(), "b".to_string()],
+            vec![],
             Box::new(Type::Function(
                 Box::new(Type::TypeVar("a".to_string())),
                 Box::new(Type::Function(
@@ -148,6 +152,7 @@ fn test_nested_existential_and_forall() {
             vec!["a".to_string()],
             Box::new(Type::Existential(
                 vec!["b".to_string()],
+                vec![],
                 Box::new(Type::Function(
                     Box::new(Type::TypeVar("a".to_string())),
                     Box::new(Type::Function(
@@ -173,6 +178,7 @@ fn test_existential_prevents_type_assumption() {
             fields: vec![Type::TypeVar("a".to_string())],
             result_ty: Some(Type::Custom("Box".to_string())),
             existential_vars: vec!["a".to_string()],
+            existential_constraints: vec![]
         }]
     );
     type_infer.register_decl(&box_decl);
