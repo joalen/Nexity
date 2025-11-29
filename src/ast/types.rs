@@ -52,6 +52,7 @@ pub struct Variant
     pub name: String,
     pub arg_types: Vec<Type>,
     pub result_ty: Option<Type>,
+    pub existential_vars: Vec<String>,
 }
 
 pub enum Item 
@@ -242,6 +243,12 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
             Ok(subst)
         }
 
+        // rigid types cannot unify with anything else rather than themselves
+        (Type::Rigid(name1), Type::Rigid(name2)) if name1 == name2 => Ok(Substitution::new()),
+        (Type::Rigid(name), _) | (_, Type::Rigid(name)) => {
+            Err(format!("Cannot unify rigid existential variable '{}'", name))
+        }
+        
         // custom types
         (Type::Custom(name1), Type::Custom(name2)) if name1 == name2 => Ok(Substitution::new()),
 
@@ -353,6 +360,7 @@ impl TypeInference
                         name: c.name.clone(),
                         arg_types: c.fields.clone(),
                         result_ty: c.result_ty.clone(), // Pass through GADT result type
+                        existential_vars: c.existential_vars.clone(),
                     }).collect(),
                 });
             }
@@ -597,9 +605,9 @@ impl Expr
             { 
                 let (pat_ty, bindings) = infer_pattern(pattern, type_var_gen, adt_env);
                 let subst = unify(&scrutinee_ty, &pat_ty, type_aliases)?;
-
                 let mut local_env = env.clone();
-                for (name, scheme) in local_env.iter_mut() {
+
+                for (_, scheme) in local_env.iter_mut() {
                     scheme.ty = apply_substitution(&scheme.ty, &subst);
                 }
 
@@ -616,7 +624,7 @@ impl Expr
                     unify(&guard_ty, &Type::Bool, type_aliases)?;
                     all_constraints.extend(guard_constraints);
                 }
-
+        
                 let (body_ty, body_constraints) = body.infer_type(&mut local_env, type_var_gen, adt_env, type_aliases)?;
                 all_constraints.extend(body_constraints);
 
@@ -710,17 +718,37 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                             panic!("Constructor arity mismatch for {}", name); // confirm arity matched
                         }
                         
-                        // Infer subpatterns
-                        for (_i, pat) in subpatterns.iter().enumerate() {
-                            let (_pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
-                            bindings.extend(pat_bindings);
-                            // Could unify pat_ty with variant.arg_types[i] here
+                        // freshen existential vars
+                        let mut subst = Substitution::new();
+                        for ex_var in &variant.existential_vars {
+                            // using Rigid instead of fresh TypeVar
+                            let rigid_var = Type::Rigid(format!("ex_{}", type_var_gen.counter));
+                            type_var_gen.counter += 1;  // manually increment
+                            subst.insert(ex_var.clone(), rigid_var);
+                        }
+
+                        // apply to field types (for freshened existentials)
+                        for (i, pat) in subpatterns.iter().enumerate() {
+                            let field_ty = apply_substitution(&variant.arg_types[i], &subst);
+                            
+                            // Match on pattern type to handle Variable specially
+                            match pat {
+                                Pattern::Variable(var_name) => {
+                                    // Bind variable to FRESHENED (opaque) field type
+                                    bindings.push((var_name.clone(), field_ty));
+                                }
+                                _ => {
+                                    let (pat_ty, pat_bindings) = infer_pattern(pat, type_var_gen, adt_env);
+                                    bindings.extend(pat_bindings);
+                                    // Could unify pat_ty with field_ty here
+                                }
+                            }
                         }
                         
                         // Build result type
                         // GADT: use explicit result type if present
                         let result_ty = if let Some(ref gadt_result) = variant.result_ty {
-                            gadt_result.clone()
+                            apply_substitution(gadt_result, &subst)
                         } else { // Normal ADT: build result type
                             if type_decl.type_params.is_empty() {
                                 Type::Custom(type_decl.name.clone())

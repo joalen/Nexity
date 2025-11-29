@@ -649,7 +649,7 @@ impl<'a> Parser<'a>
         Some(Decl::Instance(class_name, ty, methods))
     }
 
-    fn parse_data(&mut self) -> Option<Decl> 
+    pub fn parse_data(&mut self) -> Option<Decl> 
     { 
         self.next_token(); // consuming the 'data' token 
 
@@ -731,7 +731,7 @@ impl<'a> Parser<'a>
                 fields.push(ty);
             }
 
-            constructors.push(Constructor { name: ctor_name, fields, result_ty: None });
+            constructors.push(Constructor { name: ctor_name, fields, result_ty: None, existential_vars: vec![] });
 
             // check for the '|' to see if we continue or break 
             if self.current_token == Token::Char('|') 
@@ -749,12 +749,7 @@ impl<'a> Parser<'a>
     fn parse_gadt(&mut self, name: String, type_params: Vec<String>) -> Option<Decl> 
     { 
         self.next_token(); // consume the 'where' 
-
-        if self.current_token != Token::Char('{') 
-        { 
-            return None;
-        }
-
+        if self.current_token != Token::Char('{') { return None; }
         self.next_token(); // consume '{'
 
         let mut constructors = Vec::new();
@@ -777,14 +772,20 @@ impl<'a> Parser<'a>
 
             let full_type = self.parse_type()?;
 
-            let (fields, result_ty) = self.decompose_function_type(full_type);
+            let (existential_vars, inner_type) = match &full_type {
+                Type::Existential(vars, body) => (vars.clone(), (**body).clone()),
+                _ => (vec![], full_type.clone()),
+            };
+
+            let (fields, result_ty) = self.decompose_function_type(inner_type);
 
             constructors.push(Constructor {
                 name: ctor_name,
                 fields,
                 result_ty: Some(result_ty),
+                existential_vars
             });
-
+    
             if self.current_token == Token::Char(';') {
                 self.next_token();
             }

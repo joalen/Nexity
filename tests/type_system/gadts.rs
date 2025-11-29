@@ -20,6 +20,7 @@ fn test_basic_gadt() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Int]
                     )),
+                    existential_vars: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -28,6 +29,7 @@ fn test_basic_gadt() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Bool]
                     )),
+                    existential_vars: vec![],
                 },
             ],
         },
@@ -83,6 +85,7 @@ fn test_gadt_eval() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Int]
                     )),
+                    existential_vars: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -91,6 +94,7 @@ fn test_gadt_eval() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Bool]
                     )),
+                    existential_vars: vec![],
                 },
             ],
         },
@@ -144,6 +148,7 @@ fn test_gadt_if() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Int]
                     )),
+                    existential_vars: vec![],
                 },
                 Variant {
                     name: "BoolLit".to_string(),
@@ -152,6 +157,7 @@ fn test_gadt_if() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::Bool]
                     )),
+                    existential_vars: vec![],
                 },
                 Variant {
                     name: "If".to_string(),
@@ -167,6 +173,7 @@ fn test_gadt_if() {
                         Box::new(Type::Custom("Expr".to_string())),
                         vec![Type::TypeVar("a".to_string())]
                     )),
+                    existential_vars: vec![],
                 },
             ],
         },

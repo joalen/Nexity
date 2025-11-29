@@ -27,6 +27,7 @@ pub struct Constructor {
     pub name: String,
     pub fields: Vec<Type>,
     pub result_ty: Option<Type>,
+    pub existential_vars: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -54,6 +55,7 @@ pub enum Type {
     Apply(Box<Type>, Vec<Type>),
     Existential(Vec<String>, Box<Type>),
     Forall(Vec<String>, Box<Type>),
+    Rigid(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

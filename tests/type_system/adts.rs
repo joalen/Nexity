@@ -14,12 +14,14 @@ fn test_maybe_adt() {
                 Variant {
                     name: "Nothing".to_string(),
                     arg_types: vec![],
-                    result_ty: None
+                    result_ty: None,
+                    existential_vars: vec![],
                 },
                 Variant {
                     name: "Just".to_string(),
                     arg_types: vec![Type::TypeVar("a".to_string())],
-                    result_ty: None
+                    result_ty: None,
+                    existential_vars: vec![]
                 },
             ],
         },
@@ -53,7 +55,7 @@ fn test_list_adt() {
         "List".to_string(),
         vec!["a".to_string()],
         vec![
-            Constructor { name: "Nil".to_string(), fields: vec![], result_ty: None },
+            Constructor { name: "Nil".to_string(), fields: vec![], result_ty: None, existential_vars: vec![],},
             Constructor { 
                 name: "Cons".to_string(), 
                 fields: vec![
@@ -63,7 +65,8 @@ fn test_list_adt() {
                         vec![Type::TypeVar("a".to_string())],
                     ),
                 ],
-                result_ty: None
+                result_ty: None,
+                existential_vars: vec![],
             },
         ]
     );
