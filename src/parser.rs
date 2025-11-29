@@ -32,7 +32,7 @@ impl Precedence
 pub struct Parser<'a> 
 {
     lexer: Lexer<'a>,
-    current_token: Token,
+    pub current_token: Token,
 }
 
 impl<'a> Parser<'a> 
@@ -393,7 +393,30 @@ impl<'a> Parser<'a>
         }
     }
 
-    fn parse_type(&mut self) -> Option<Type> {
+    pub fn parse_type(&mut self) -> Option<Type> {
+        // check for existential operator
+        if self.current_token == Token::ReserveTok(ReservedToken::Exists) {
+            self.next_token(); // consume 'exists'
+            
+            let mut vars = Vec::new();
+            while let Token::Identifier(v) = &self.current_token {
+                if v.chars().next().unwrap().is_lowercase() {
+                    vars.push(v.clone());
+                    self.next_token();
+                } else {
+                    break;
+                }
+            }
+            
+            if self.current_token != Token::Char('.') {
+                return None;
+            }
+            self.next_token(); // consume '.'
+            
+            let inner_type = self.parse_type()?;
+            return Some(Type::Existential(vars, Box::new(inner_type)));
+        }
+
         // check for the forall operator 
         if self.current_token == Token::ReserveTok(ReservedToken::Forall)
         { 
@@ -430,7 +453,14 @@ impl<'a> Parser<'a>
                     "Float" => Type::Float,
                     "Bool" => Type::Bool,
                     "Char" => Type::Char,
-                    _ => Type::Custom(name.clone()),
+                    _ => 
+                    { 
+                        if name.chars().next().unwrap().is_lowercase() {
+                            Type::TypeVar(name.clone())
+                        } else {
+                            Type::Custom(name.clone())
+                        }
+                    }
                 };
                 self.next_token();
                 ty

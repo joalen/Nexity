@@ -113,6 +113,16 @@ pub fn apply_substitution(ty: &Type, subst: &Substitution) -> Type
             )
         }
 
+        Type::Existential(vars, body) => {
+            let filtered_subst: Substitution = subst
+                .iter()
+                .filter(|(k, _)| !vars.contains(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            
+            Type::Existential(vars.clone(), Box::new(apply_substitution(body, &filtered_subst)))
+        }
+
         Type::Forall(vars, body) => 
         { 
             let filtered_subst: Substitution = subst
@@ -187,6 +197,17 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
             let s1 = unify(&expand_type_alias(param1, aliases), &expand_type_alias(param2, aliases), aliases)?;
             let s2 = unify(&apply_substitution(ret1, &s1), &apply_substitution(ret2, &s1), aliases)?;
             Ok(compose_substitutions(s1, s2))
+        }
+
+        // Existential unpacking: ∃a. T becomes a fresh type variable
+        (Type::Existential(vars, body), ty) | (ty, Type::Existential(vars, body)) => {
+            let mut subst = Substitution::new();
+            let mut generator = TypeVarGenerator::new();
+            for v in vars {
+                subst.insert(v.clone(), generator.fresh());
+            }
+            let instantiated = apply_substitution(body, &subst);
+            unify(&instantiated, ty, aliases)
         }
 
         // forall types 
@@ -633,6 +654,14 @@ fn free_type_vars(ty: &Type) -> HashSet<String> {
             vars
         }
 
+        Type::Existential(vars, body) => {
+            let mut free = free_type_vars(body);
+            for v in vars {
+                free.remove(v);
+            }
+            free
+        }
+
         Type::Forall(vars, body) => {
             let mut free = free_type_vars(body);
             for v in vars {
@@ -788,6 +817,11 @@ pub fn expand_type_alias_guarded(
             }
         }
 
+        Type::Existential(vars, body) => Type::Existential(
+            vars.clone(),
+            Box::new(expand_type_alias_guarded(body, aliases, depth, max_depth))
+        ),
+        
         Type::Apply(constructor, args) => {
             if let Type::Custom(name) = &**constructor {
                 if let Some((params, body)) = aliases.get(name) {

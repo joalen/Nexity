@@ -52,6 +52,7 @@ pub enum Type {
     Constrained(Vec<Constraint>, Box<Type>),
     Constructor(String), 
     Apply(Box<Type>, Vec<Type>),
+    Existential(Vec<String>, Box<Type>),
     Forall(Vec<String>, Box<Type>),
 }
 
