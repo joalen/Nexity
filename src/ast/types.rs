@@ -184,11 +184,15 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
         // type vars on either side
         (Type::TypeVar(name), t) | (t, Type::TypeVar(name)) =>
         { 
-            if occurs_check(name, t)
-            { 
+            if let Type::TypeVar(other_name) = t {
+                if name == other_name {
+                    return Ok(Substitution::new()); // Same var, nothing to do
+                }
+            }
+            
+            if occurs_check(name, t) {
                 return Err(format!("Occurs check failed for type variable '{}'", name));
             }
-
             let mut subs = Substitution::new();
             subs.insert(name.clone(), t.clone());
             Ok(subs)
@@ -266,6 +270,7 @@ pub struct TypeInference
     pub adt_env: HashMap<String, TypeDecl>,
     pub kind_env: KindEnv,
     pub type_aliases: HashMap<String, (Vec<String>, Type)>,
+    pub signatures: HashMap<String, Type>
 }
 
 impl TypeInference
@@ -290,6 +295,7 @@ impl TypeInference
             adt_env: HashMap::new(),
             kind_env,
             type_aliases: HashMap::new(),
+            signatures: HashMap::new(),
         }
     }
 
@@ -345,6 +351,47 @@ impl TypeInference
     { 
         match decl
         { 
+            Decl::TypeSig(name, ty) => {
+                self.signatures.insert(name.clone(), ty.clone());
+            }
+
+            Decl::FuncDef(name, params, body) => {
+                let lambda = if params.is_empty() {
+                    body.clone()
+                } else {
+                    Expr::Lambda(params.clone(), Box::new(body.clone()))
+                };
+                
+                // Infer the actual type
+                let (inferred_ty, constraints) = lambda.infer_type(
+                    &mut self.env,
+                    &mut self.type_var_gen,
+                    &self.adt_env,
+                    &self.type_aliases
+                ).expect("Type inference failed");
+                
+                // If we have a signature, check it matches
+                if let Some(sig_ty) = self.signatures.get(name).cloned() {
+                    println!("Signature: {:?}", sig_ty);
+                    println!("Inferred: {:?}", inferred_ty);
+
+                    match unify(&sig_ty, &inferred_ty, &self.type_aliases) {
+                        Ok(subst) => {
+                            let final_ty = apply_substitution(&sig_ty, &subst);
+                            let scheme = generalize(&self.env, &final_ty, constraints);
+                            self.env.insert(name.clone(), scheme);
+                        }
+                        Err(e) => {
+                            panic!("Function doesn't match its type signature: {:?}", e);
+                        }
+                    }
+                } else {
+                    // No signature, just use inferred type
+                    let scheme = generalize(&self.env, &inferred_ty, constraints);
+                    self.env.insert(name.clone(), scheme);
+                }
+            }
+
             Decl::Data(name, type_params, constructors) => 
             { 
                 let kind = type_params.iter().rev().fold(Kind::Star, |acc, _| {

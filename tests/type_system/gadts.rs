@@ -1,4 +1,4 @@
-use nexity::ast::{ast::{BinaryOp, Expr, Pattern, Type}, types::{TypeDecl, TypeInference, TypeScheme, Variant}};
+use nexity::ast::{ast::{BinaryOp, Decl, Expr, Pattern, Type}, types::{TypeDecl, TypeInference, TypeScheme, Variant}};
 
 #[test]
 fn test_basic_gadt() {
@@ -65,7 +65,6 @@ fn test_basic_gadt() {
     );
     
     let result = type_infer.infer(&match_expr);
-    println!("GADT match result: {:?}", result);
     assert!(result.is_ok());
 }
 
@@ -185,7 +184,34 @@ fn test_gadt_if() {
             ],
         },
     );
+}
+
+#[test]
+fn test_adt_explicit_sig_with_existentials() {
+    use nexity::lexer::Lexer;
+    use nexity::parser::Parser;
     
-    let result = type_infer.infer(&Expr::Identifier("test".to_string()));
-    println!("GADT If constructor test: {:?}", result);
+    let input = r#"
+        Data ShowBox = MkBox :: exists a. Show a => a -> ShowBox
+    "#;
+    
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    
+    let decl = parser.parse_data().unwrap();
+    
+    match decl {
+        Decl::Data(name, params, constructors) => {
+            assert_eq!(name, "ShowBox");
+            assert!(params.is_empty());
+            assert_eq!(constructors.len(), 1);
+            
+            let ctor = &constructors[0];
+            assert_eq!(ctor.name, "MkBox");
+            assert_eq!(ctor.existential_vars, vec!["a".to_string()]);
+            assert_eq!(ctor.existential_constraints.len(), 1);
+            assert_eq!(ctor.existential_constraints[0].class, "Show");
+        }
+        _ => panic!("Expected Data declaration"),
+    }
 }

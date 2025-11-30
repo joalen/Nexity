@@ -80,6 +80,43 @@ impl<'a> Parser<'a>
         Some(left)
     }
 
+    pub fn parse_decl(&mut self) -> Option<Decl> {
+        match &self.current_token {
+            Token::ReserveTok(ReservedToken::Data) => self.parse_data(),
+            Token::ReserveTok(ReservedToken::Type) => self.parse_type_alias(),
+            Token::ReserveTok(ReservedToken::Classm) => self.parse_class(),
+            Token::ReserveTok(ReservedToken::Instance) => self.parse_instance(),
+            
+            // top-level identifier could be type sig or function def
+            Token::Identifier(name) => {
+                let name = name.clone();
+                self.next_token();
+                
+                if self.current_token == Token::DoubleColon {
+                    self.next_token();
+                    let ty = self.parse_type()?;
+                    return Some(Decl::TypeSig(name, ty));
+                }
+                
+                let mut params = Vec::new();
+                while let Token::Identifier(param) = &self.current_token {
+                    params.push(param.clone());
+                    self.next_token();
+                }
+                
+                if self.current_token == Token::Equals {
+                    self.next_token();
+                    let body = self.parse_expr(Precedence::Lowest)?;
+                    return Some(Decl::FuncDef(name, params, body));
+                }
+                
+                None
+            }
+            
+            _ => None,
+        }
+    }
+
     fn parse_function_definition(&mut self) -> Option<Expr> 
     {
         if let Token::Identifier(name) = &self.current_token 
@@ -711,6 +748,8 @@ impl<'a> Parser<'a>
             return None;
         }
 
+        self.next_token(); // consume '='
+
         // parse constructors 
         let mut constructors = Vec::new(); 
         loop 
@@ -722,6 +761,40 @@ impl<'a> Parser<'a>
             };
 
             self.next_token(); // finally, consume constructor name
+
+            // explicit signature? 
+            if self.current_token == Token::DoubleColon {
+                self.next_token(); // consume '::'
+                
+                let full_sig = self.parse_type()?; // parse full signature
+                
+                // extract existentials (if present)
+                let (existential_vars, constraints, inner_type) = match &full_sig {
+                    Type::Existential(vars, cons, body) => {
+                        (vars.clone(), cons.clone(), (**body).clone())
+                    }
+                    _ => (vec![], vec![], full_sig.clone()),
+                };
+                
+                // function type -> fields and result
+                let (fields, result_ty) = self.decompose_function_type(inner_type);
+                
+                constructors.push(Constructor {
+                    name: ctor_name,
+                    fields,
+                    result_ty: Some(result_ty),
+                    existential_vars,
+                    existential_constraints: constraints,
+                });
+                
+                // continue if '|'
+                if self.current_token == Token::Char('|') {
+                    self.next_token();
+                }
+
+                continue;
+            }
+
 
             let mut fields = Vec::new();
             if self.current_token == Token::Char('{') {
@@ -737,7 +810,7 @@ impl<'a> Parser<'a>
                     self.next_token();
                     
                     let ty = self.parse_type()?;
-                    fields.push((Some(field_name), ty));
+                    fields.push(ty);
                     
                     if self.current_token == Token::Char(',') {
                         self.next_token();
@@ -747,15 +820,8 @@ impl<'a> Parser<'a>
             } else {
                 // Positional fields (existing code)
                 while let Some(ty) = self.parse_type() {
-                    fields.push((None, ty));
+                    fields.push(ty);
                 }
-            }
-
-            // get field types
-            let mut fields = Vec::new(); 
-            while let Some(ty) = self.parse_type()
-            { 
-                fields.push(ty);
             }
 
             constructors.push(Constructor { name: ctor_name, fields, result_ty: None, existential_vars: vec![], existential_constraints: vec![] });
@@ -764,9 +830,9 @@ impl<'a> Parser<'a>
             if self.current_token == Token::Char('|') 
             { 
                 self.next_token(); // consume '|'
-            } else { 
-                break;
             }
+
+            continue;
         }
 
         Some(Decl::Data(name, type_params, constructors))

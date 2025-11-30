@@ -11,6 +11,8 @@ pub enum Decl {
     TypeAlias(String, Vec<String>, Type),
     Class(String, String, Vec<MethodSig>),
     Instance(String, Type, Vec<MethodImpl>),
+    TypeSig(String, Type),
+    FuncDef(String, Vec<String>, Expr),
 }
 
 pub struct MethodSig {
