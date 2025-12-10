@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::ast::{Expr, BinaryOp, Stmt};
+use crate::ast::ast::{Expr, BinaryOp, Stmt};
 
 pub struct LLVMGenerator {
     code: Vec<String>,
@@ -24,7 +24,8 @@ impl LLVMGenerator {
 
     pub fn generate_expr(&mut self, expr: &Expr) -> String {
         match expr {
-            Expr::Number(n) => format!("{}", n),
+            Expr::Int(n) => format!("{}", n),
+            Expr::Float(n) => format!("{}", n),
 
             Expr::BinaryOp(lhs, op, rhs) => {
                 let lhs_code = self.generate_expr(lhs);

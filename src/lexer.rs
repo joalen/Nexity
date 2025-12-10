@@ -1,22 +1,26 @@
 use std::str::Chars;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ReservedToken {
     Case, Classm, Data, Deriving, Do, Else, If, Import, In, Infix, Infixl, Infixr, Instance, Let,
-    Of, Module, Newtype, Then, Type, Where,
+    Of, Module, Newtype, Then, Type, Where, Match, True, False, Class, Forall, Exists,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Eof,
     ReserveTok(ReservedToken),
     Identifier(String),
-    Number(f64),
+    IntLiteral(i64),
+    FloatLiteral(f64),
     Char(char),
     Equals,
     Arrow,
     Pipe,
+    DoubleEquals,
+    DoubleColon,
+    DoubleArrow,
 }
 
 pub struct Lexer<'a> {
@@ -69,31 +73,97 @@ impl<'a> Lexer<'a> {
 
         match current_char {
             Some(c) if c.is_alphabetic() => self.lex_identifier(),
-            Some(c) if c.is_digit(10) || c == '.' => self.lex_number(),
+            Some(c) if c.is_digit(10) => self.lex_number(),
+            Some('.') => {
+                self.next_char();
+                Token::Char('.')
+            }
+            
+            // comments
             Some('#') => {
-                loop {
-                    let c = {
-                        let current_char = self.current_char.lock().unwrap();
-                        *current_char
-                    };
-
-                    if let Some(c) = c {
-                        if c == '\n' || c == '\r' {
-                            break;
-                        }
-                        self.next_char();
-                    } else {
-                        break;
-                    }
+                while let Some(ch) = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    if ch == '\n' || ch == '\r' { break; }
+                    self.next_char();
                 }
                 self.next_char();
                 self.get_token()
             }
+
+            // pipe symbol
+            Some('|') => {
+                self.next_char();
+                Token::Pipe
+            }
+
+            // arrow notation
+            Some('-') => {
+                self.next_char();
+                if let Some('>') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::Arrow
+                } else {
+                    Token::Char('-')
+                }
+            }
+
+            // the double equals 
+            Some('=') => {
+                self.next_char();
+                if let Some('=') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::DoubleEquals
+                } else if let Some('>') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                }{
+                    self.next_char();
+                    Token::DoubleArrow
+                } else {
+                    Token::Equals
+                }
+            }
+
+            // comparisons
+            Some('<') => {
+                self.next_char();
+                Token::Char('<')
+            }
+
+            Some('>') => {
+                self.next_char();
+                Token::Char('>')
+            }
+
+            // the double colon
+            Some(':') => {
+                self.next_char();
+
+                if let Some(':') = {
+                    let current_char = self.current_char.lock().unwrap();
+                    *current_char
+                } {
+                    self.next_char();
+                    Token::DoubleColon
+                } else {
+                    Token::Char(':')
+                }
+            }
+
             Some(c) => {
                 self.next_char();
                 Token::Char(c)
             }
-            None => Token::Eof,
+            
+            None => Token::Eof, // mark end of file
         }
     }
 
@@ -128,16 +198,29 @@ impl<'a> Lexer<'a> {
 
         match identifier.as_str() {
             "case" => Token::ReserveTok(ReservedToken::Case), 
+            "of"   => Token::ReserveTok(ReservedToken::Of),
+            "if"   => Token::ReserveTok(ReservedToken::If),
+            "then" => Token::ReserveTok(ReservedToken::Then),
+            "else" => Token::ReserveTok(ReservedToken::Else),
             "Classm" => Token::ReserveTok(ReservedToken::Classm),
             "Data" => Token::ReserveTok(ReservedToken::Data),
             "Deriving" => Token::ReserveTok(ReservedToken::Deriving),
             "Do" => Token::ReserveTok(ReservedToken::Do),
+            "let" => Token::ReserveTok(ReservedToken::Let),
+            "in" => Token::ReserveTok(ReservedToken::In),
+            "True" => Token::ReserveTok(ReservedToken::True),
+            "False" => Token::ReserveTok(ReservedToken::False),
+            "type" => Token::ReserveTok(ReservedToken::Type),
+            "forall" => Token::ReserveTok(ReservedToken::Forall),
+            "exists" => Token::ReserveTok(ReservedToken::Exists),
+            "where" => Token::ReserveTok(ReservedToken::Where),
             _ => Token::Identifier(identifier),
         }
     }
 
     fn lex_number(&mut self) -> Token {
         let mut num_str = String::new();
+        let mut has_decimal = false;
 
         loop {
             let c = {
@@ -146,20 +229,18 @@ impl<'a> Lexer<'a> {
             };
 
             if let Some(c) = c {
+                if c == '.' { has_decimal = true; }
                 if c.is_digit(10) || c == '.' {
                     num_str.push(c);
                     self.next_char();
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
+                } else { break; }
+            } else { break; }
         }
 
-        match num_str.parse::<f64>() {
-            Ok(num_val) => Token::Number(num_val),
-            Err(_) => Token::Number(0.0),
+        if has_decimal {
+            Token::FloatLiteral(num_str.parse::<f64>().unwrap_or(0.0))
+        } else {
+            Token::IntLiteral(num_str.parse::<i64>().unwrap_or(0))
         }
     }
 }
