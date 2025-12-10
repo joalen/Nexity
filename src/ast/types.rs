@@ -169,6 +169,11 @@ fn occurs_check(var: &str, ty: &Type) -> bool
     { 
         Type::TypeVar(name) => name == var,
         Type::Function(param, ret) => occurs_check(var, param) || occurs_check(var, ret),
+        Type::Apply(ctor, args) => 
+            occurs_check(var, ctor) || args.iter().any(|a| occurs_check(var, a)),
+        Type::Forall(_, body) | Type::Existential(_, _, body) => 
+            occurs_check(var, body),
+        Type::Constrained(_, inner) => occurs_check(var, inner),
         _ => false,
     }
 }
