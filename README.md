@@ -31,6 +31,14 @@ Number(5.0)
 Eof
 ```
 
+## Type Checking 
+For my compiler, I decided to adopt the HM Type Inference system (used by Haskell and other languages). I'll say, it was difficult (as you can tell by the amount of work done) but was very worthy and nice seeing this HM system all come into fruition. For now, known limitations are these:
+1. Higher-rank types (only does rank-1 polymorphism and not rank-2 or higher)
+2. Type check defaulting (hadn't made the feature for Haskell's `default (Int, Double)`
+3. Constraint solving isn't complete yet -- need to do overlap checks, fundeps, and type families.
+
+Credits to: https://jeremymikkola.com/posts/2018_03_25_understanding_algorithm_w.html for a nice read on how the Hindley-Milner (Algorithm W) works. Note: taking programming language paradigms will help you understand most of what the article talks about.
+
 ## Parser
 This parser implements the top-down approach rather than LR parsers or recursive-descent, which would need to consume a full grammar for each precedence level (felt it may take up overhead). This Pratt parser is how this compiler will take those token streams (seen above) and converges to an abstract syntax tree (AST). Later, I'm hoping on building the Hindley-Milner type inference system (very useful in contexts to functional programming languages, like Haskell). Here are things my parser supports:
 - Arithmetic expressions with proper operator precedence (+, -, *, /, %)
@@ -39,8 +47,6 @@ This parser implements the top-down approach rather than LR parsers or recursive
 - Lambda expressions (\x -> expr)
 - Function definitions (f x = expr)
 - Pipe operators (| func | arg)
-
-Credits to: https://jeremymikkola.com/posts/2018_03_25_understanding_algorithm_w.html for a nice read on how the Hindley-Milner (Algorithm W) works. Note: taking programming language paradigms will help you understand most of what the article talks about.
 
 ### Architecture Summary
 This is the flow of Nexity (as a state machine):
