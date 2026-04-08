@@ -189,11 +189,36 @@ impl<'ctx> Codegen<'ctx> {
         Ok(function.as_global_value().as_pointer_value().into())
     }
 
-    fn compile_application(
-        &mut self,
-        func_expr: &Expr,
-        arg_expr: &Expr,
-    ) -> Result<BasicValueEnum<'ctx>, String> {
+    fn compile_application(&mut self, func_expr: &Expr, arg_expr: &Expr) -> Result<BasicValueEnum<'ctx>, String>
+    {
+
+        // flatten nested apps into (func_name)
+        let mut args = vec![arg_expr];
+        let mut head = func_expr;
+        while let Expr::Application(f, a) = head {
+            args.push(a);
+            head = f;
+        }
+        args.reverse();
+
+        let compiled_args: Vec<_> = args.iter()
+        .map(|a| self.compile_expr(a).map(|v| v.into()))
+        .collect::<Result<_, _>>()?;
+
+
+        if let Expr::Identifier(name) = head {
+            if let Some(function) = self.module.get_function(name) {
+                let call = self.builder
+                    .build_call(function, &compiled_args, "call")
+                    .unwrap();
+                let val = call.as_any_value_enum()
+                    .try_into()
+                    .map_err(|_| "call did not return a basic value".to_string())?;
+                return Ok(val);
+            }
+        }
+        
+        // indirect calls for lambdab-based expressions
         let arg_val = self.compile_expr(arg_expr)?;
         let i64_t = self.context.i64_type();
 

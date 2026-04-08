@@ -33,8 +33,17 @@ fn test_function_call() {
         double x = x + x
         main = double 21
     ").unwrap();
-    println!("{}", ir);
     assert!(ir.contains("define i64 @double"));
     assert!(ir.contains("define i64 @main"));
     assert!(ir.contains("call i64 @double"));
+}
+
+#[test]
+fn test_multi_arg_function() {
+    let ir = compile_program("
+        add x y = x + y
+        main = add 3 4
+    ").unwrap();
+    assert!(ir.contains("define i64 @add(i64 %x, i64 %y)"));
+    assert!(ir.contains("call i64 @add(i64 3, i64 4)"));
 }
