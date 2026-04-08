@@ -7,6 +7,7 @@ use inkwell::context::Context;
 use lexer::Lexer;
 use parser::{Parser, Precedence};
 use ast::types::TypeInference;
+use ast::ast::Decl;
 use llvmgen::Codegen;
 
 pub fn compile(source: &str) -> Result<String, String> {
@@ -24,6 +25,36 @@ pub fn compile(source: &str) -> Result<String, String> {
     let context = Context::create();
     let mut cg = Codegen::new(&context);
     cg.compile_module(&expr)?;
+
+    Ok(cg.module.print_to_string().to_string())
+}
+
+pub fn compile_program(source: &str) -> Result<String, String> {
+    // parsing all decls
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+
+    let mut decls = Vec::new();
+    while parser.current_token != lexer::Token::Eof {
+        match parser.parse_decl() {
+            Some(decl) => decls.push(decl),
+            None => break,
+        }
+    }
+
+    // then, type check all decls
+    let mut ti = TypeInference::new();
+    for decl in &decls {
+        ti.register_decl(decl);
+    }
+
+    // codegeneration3
+    let context = Context::create();
+    let mut cg = Codegen::new(&context);
+
+    for decl in &decls {
+        cg.compile_decl(decl)?;
+    }
 
     Ok(cg.module.print_to_string().to_string())
 }

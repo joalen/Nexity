@@ -24,6 +24,7 @@ impl Precedence
             Token::Char('*') | Token::Char('/') => Precedence::Product,
             Token::Pipe => Precedence::Pipe,
             Token::DoubleEquals => Precedence::Comparison,
+            Token::Char('<') | Token::Char('>') => Precedence::Comparison,
             _ => Precedence::Lowest,
         }
     }
