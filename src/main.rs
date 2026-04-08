@@ -4,12 +4,21 @@ mod llvmgen;
 mod ast; 
 
 use std::collections::HashMap;
-use std::vec;
 
+use inkwell::context::Context;
+use crate::llvmgen::Codegen;
 use crate::ast::types::{ClassDef, Instance, TypeInference};
-use crate::ast::ast::{BinaryOp, Expr, Type};
+use crate::ast::ast::{BinaryOp, Expr, Type}; 
 
 fn main() {
+    let context = Context::create();
+    let mut cg = Codegen::new(&context);
+
+    // Test 1: simple int
+    let expr = Expr::Int(42);
+    cg.compile_module(&expr).unwrap();
+    println!("{}", cg.module.print_to_string().to_string());
+
     let mut type_infer = TypeInference::new();
     let expr = Expr::Float(42.0);
 
