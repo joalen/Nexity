@@ -74,3 +74,15 @@ fn test_print_float() {
     assert!(ir.contains("printf"));
     assert!(ir.contains("%f"));
 }
+
+#[test]
+fn test_pattern_match_literal() {
+    let ir = compile_program("
+        describe n = match n { 0 -> 1, 1 -> 2, _ -> 0 }
+        main = print (describe 1)
+    ").unwrap();
+    println!("{}", ir);
+    assert!(ir.contains("define i64 @describe"));
+    assert!(ir.contains("icmp eq"));
+    assert!(ir.contains("phi"));
+}

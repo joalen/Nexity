@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 use super::Codegen;
-use crate::ast::ast::{BinaryOp, Expr};
+use crate::ast::ast::{BinaryOp, Expr, Pattern};
 use inkwell::IntPredicate;
 use inkwell::values::AnyValue;
-use inkwell::values::BasicValueEnum;
 use inkwell::values::BasicMetadataValueEnum;
+use inkwell::values::BasicValueEnum;
 
 impl<'ctx> Codegen<'ctx> {
     pub fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>, String> {
@@ -27,6 +27,7 @@ impl<'ctx> Codegen<'ctx> {
             Expr::Let(bindings, body) => self.compile_let(bindings, body),
             Expr::Lambda(params, body) => self.compile_lambda(params, body),
             Expr::Application(f, arg) => self.compile_application(f, arg),
+            Expr::Match(scrutinee, arms) => self.compile_match(scrutinee, arms),
 
             _ => Err(format!("compile_expr: unsupported {:?}", expr)),
         }
@@ -192,9 +193,11 @@ impl<'ctx> Codegen<'ctx> {
         Ok(function.as_global_value().as_pointer_value().into())
     }
 
-    fn compile_application(&mut self, func_expr: &Expr, arg_expr: &Expr) -> Result<BasicValueEnum<'ctx>, String>
-    {
-
+    fn compile_application(
+        &mut self,
+        func_expr: &Expr,
+        arg_expr: &Expr,
+    ) -> Result<BasicValueEnum<'ctx>, String> {
         // flatten nested apps into (func_name)
         let mut args = vec![arg_expr];
         let mut head = func_expr;
@@ -204,9 +207,13 @@ impl<'ctx> Codegen<'ctx> {
         }
         args.reverse();
 
-        let compiled_args: Vec<BasicMetadataValueEnum> = args.iter()
-        .map(|a| self.compile_expr(a).map(|v| BasicMetadataValueEnum::from(v)))
-        .collect::<Result<_, _>>()?;
+        let compiled_args: Vec<BasicMetadataValueEnum> = args
+            .iter()
+            .map(|a| {
+                self.compile_expr(a)
+                    .map(|v| BasicMetadataValueEnum::from(v))
+            })
+            .collect::<Result<_, _>>()?;
 
         // builtin print
         if let Expr::Identifier(name) = head {
@@ -221,16 +228,18 @@ impl<'ctx> Codegen<'ctx> {
         // direct named call
         if let Expr::Identifier(name) = head {
             if let Some(function) = self.module.get_function(name) {
-                let call = self.builder
+                let call = self
+                    .builder
                     .build_call(function, &compiled_args, "call")
                     .unwrap();
-                let val = call.as_any_value_enum()
+                let val = call
+                    .as_any_value_enum()
                     .try_into()
                     .map_err(|_| "call did not return a basic value".to_string())?;
                 return Ok(val);
             }
         }
-        
+
         // indirect calls for lambdab-based expressions
         let arg_val = self.compile_expr(arg_expr)?;
         let i64_t = self.context.i64_type();
@@ -266,24 +275,41 @@ impl<'ctx> Codegen<'ctx> {
     pub fn emit_printf(&mut self, val: BasicValueEnum<'ctx>) -> Result<(), String> {
         let i32_t = self.context.i32_type();
         let ptr_t = self.context.ptr_type(inkwell::AddressSpace::default());
-    
+
         let printf = self.module.get_function("printf").unwrap_or_else(|| {
             let printf_ty = i32_t.fn_type(&[ptr_t.into()], true);
             self.module.add_function("printf", printf_ty, None)
         });
-    
+
         let (fmt_str, print_val) = match val {
             BasicValueEnum::IntValue(v) => {
                 // check if it's bool (i1) vs int (i64)
                 if v.get_type().get_bit_width() == 1 {
                     let fmt = self.builder.build_global_string_ptr("%s\n", "fmt").unwrap();
                     // convert bool to "true"/"false" string
-                    let true_str = self.builder.build_global_string_ptr("true", "true_str").unwrap();
-                    let false_str = self.builder.build_global_string_ptr("false", "false_str").unwrap();
-                    let selected = self.builder.build_select(v, true_str.as_pointer_value(), false_str.as_pointer_value(), "bool_str").unwrap();
+                    let true_str = self
+                        .builder
+                        .build_global_string_ptr("true", "true_str")
+                        .unwrap();
+                    let false_str = self
+                        .builder
+                        .build_global_string_ptr("false", "false_str")
+                        .unwrap();
+                    let selected = self
+                        .builder
+                        .build_select(
+                            v,
+                            true_str.as_pointer_value(),
+                            false_str.as_pointer_value(),
+                            "bool_str",
+                        )
+                        .unwrap();
                     (fmt.as_pointer_value().into(), selected.into())
                 } else {
-                    let fmt = self.builder.build_global_string_ptr("%lld\n", "fmt").unwrap();
+                    let fmt = self
+                        .builder
+                        .build_global_string_ptr("%lld\n", "fmt")
+                        .unwrap();
                     (fmt.as_pointer_value().into(), val)
                 }
             }
@@ -293,13 +319,133 @@ impl<'ctx> Codegen<'ctx> {
             }
             _ => return Err("print: unsupported type".into()),
         };
-    
-        self.builder.build_call(
-            printf,
-            &[fmt_str, print_val.into()],
-            "printf_call"
-        ).unwrap();
-    
+
+        self.builder
+            .build_call(printf, &[fmt_str, print_val.into()], "printf_call")
+            .unwrap();
+
         Ok(())
+    }
+
+    fn compile_match(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[(Pattern, Option<Expr>, Expr)],
+    ) -> Result<BasicValueEnum<'ctx>, String> {
+        let val = self.compile_expr(scrutinee)?;
+        let parent_fn = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
+        let merge_bb = self.context.append_basic_block(parent_fn, "match_merge");
+
+        let mut phi_incoming: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock)> =
+            Vec::new();
+
+        for (i, (pattern, guard, body)) in arms.iter().enumerate() {
+            let check_bb = self
+                .context
+                .append_basic_block(parent_fn, &format!("arm{}_check", i));
+            let body_bb = self
+                .context
+                .append_basic_block(parent_fn, &format!("arm{}_body", i));
+            let next_bb = self
+                .context
+                .append_basic_block(parent_fn, &format!("arm{}_next", i));
+
+            self.builder.build_unconditional_branch(check_bb).unwrap();
+            self.builder.position_at_end(check_bb);
+
+            // emit pattern check — returns i1
+            let matched = self.compile_pattern_check(val, pattern)?;
+
+            // bind variables from pattern into env
+            let saved_env = self.env.clone();
+            self.compile_pattern_bindings(val, pattern)?;
+
+            // optional guard
+            let final_check = if let Some(guard_expr) = guard {
+                let guard_val = self.compile_expr(guard_expr)?.into_int_value();
+                let cond = self
+                    .builder
+                    .build_and(matched, guard_val, "guarded")
+                    .unwrap();
+                cond
+            } else {
+                matched
+            };
+
+            self.builder
+                .build_conditional_branch(final_check, body_bb, next_bb)
+                .unwrap();
+
+            // body
+            self.builder.position_at_end(body_bb);
+            let result = self.compile_expr(body)?;
+            self.builder.build_unconditional_branch(merge_bb).unwrap();
+            let body_end_bb = self.builder.get_insert_block().unwrap();
+            phi_incoming.push((result, body_end_bb));
+
+            self.env = saved_env;
+            self.builder.position_at_end(next_bb);
+        }
+
+        // no match — unreachable (type checker guarantees exhaustiveness)
+        self.builder.build_unreachable().unwrap();
+
+        self.builder.position_at_end(merge_bb);
+        let phi = self
+            .builder
+            .build_phi(self.context.i64_type(), "match_result")
+            .unwrap();
+        for (val, bb) in &phi_incoming {
+            phi.add_incoming(&[(val, *bb)]);
+        }
+
+        Ok(phi.as_basic_value())
+    }
+
+    fn compile_pattern_check(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+        pattern: &Pattern,
+    ) -> Result<inkwell::values::IntValue<'ctx>, String> {
+        match pattern {
+            Pattern::Wildcard | Pattern::Variable(_) => {
+                // always matches
+                Ok(self.context.bool_type().const_int(1, false))
+            }
+
+            Pattern::Literal(n) => {
+                let lhs = val.into_int_value();
+                let rhs = self.context.i64_type().const_int(*n as u64, true);
+                Ok(self
+                    .builder
+                    .build_int_compare(IntPredicate::EQ, lhs, rhs, "lit_cmp")
+                    .unwrap())
+            }
+
+            Pattern::Constructor(_, _) => {
+                // ADT matching — leave for next PR
+                Err("Constructor patterns not yet supported in codegen".into())
+            }
+        }
+    }
+
+    fn compile_pattern_bindings(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+        pattern: &Pattern,
+    ) -> Result<(), String> {
+        match pattern {
+            Pattern::Variable(name) => {
+                self.env.insert(name.clone(), val);
+                Ok(())
+            }
+            Pattern::Wildcard | Pattern::Literal(_) => Ok(()),
+            Pattern::Constructor(_, _) => Ok(()), // later
+        }
     }
 }
