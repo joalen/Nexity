@@ -4,3 +4,4 @@ version = "1.1.0"
 edition = "2024"
 
 [dependencies]
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm22-1-force-dynamic"] }

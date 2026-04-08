@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::lexer::{Lexer, ReservedToken, Token};
 use crate::ast::ast::{BinaryOp, Constraint, Constructor, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
 
@@ -24,6 +26,7 @@ impl Precedence
             Token::Char('*') | Token::Char('/') => Precedence::Product,
             Token::Pipe => Precedence::Pipe,
             Token::DoubleEquals => Precedence::Comparison,
+            Token::Char('<') | Token::Char('>') => Precedence::Comparison,
             _ => Precedence::Lowest,
         }
     }
@@ -43,7 +46,7 @@ impl<'a> Parser<'a>
         Parser { lexer, current_token }
     }
 
-    fn next_token(&mut self)
+    pub fn next_token(&mut self)
     {
         let token = self.lexer.get_token();
         self.current_token = token;
@@ -61,8 +64,11 @@ impl<'a> Parser<'a>
             }
 
             // handling juxtaposition (or basically implicit application)
-            if matches!(self.current_token, Token::Identifier(_) | Token::Char('('))
-            { 
+            if matches!(self.current_token, 
+                Token::Identifier(_) | Token::Char('(') | 
+                Token::IntLiteral(_) | Token::FloatLiteral(_) |
+                Token::ReserveTok(ReservedToken::True) | Token::ReserveTok(ReservedToken::False))
+            {
                 left = self.parse_application(left)?;
                 continue;
             }
@@ -800,7 +806,7 @@ impl<'a> Parser<'a>
             if self.current_token == Token::Char('{') {
                 self.next_token();
                 while self.current_token != Token::Char('}') {
-                    let field_name = match &self.current_token {
+                    let _field_name = match &self.current_token {
                         Token::Identifier(n) => n.clone(),
                         _ => break,
                     };
@@ -939,6 +945,21 @@ impl<'a> Parser<'a>
 
     fn current_token_precedence(&self) -> Option<Precedence> 
     {
-        Some(Precedence::from_token(&self.current_token))
+        match &self.current_token {
+            Token::VirtualSemi => Some(Precedence::Lowest),
+            Token::Char('+') | Token::Char('-') => Some(Precedence::Sum),
+            Token::Char('*') | Token::Char('/') => Some(Precedence::Product),
+            Token::Pipe => Some(Precedence::Pipe),
+            Token::DoubleEquals => Some(Precedence::Comparison),
+            Token::Char('<') | Token::Char('>') => Some(Precedence::Comparison),
+            // juxtaposition — anything that can start an argument
+            Token::Identifier(_) 
+            | Token::IntLiteral(_) 
+            | Token::FloatLiteral(_)
+            | Token::Char('(')
+            | Token::ReserveTok(ReservedToken::True) 
+            | Token::ReserveTok(ReservedToken::False) => Some(Precedence::Application),
+            _ => Some(Precedence::Lowest),
+        }
     }
 }
