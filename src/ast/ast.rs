@@ -6,6 +6,8 @@ pub enum Kind
     Star, // *
     Arrow(Box<Kind>, Box<Kind>), // * -> *
 }
+
+#[derive(Debug)]
 pub enum Decl {
     Data(String, Vec<String>, Vec<Constructor>),
     TypeAlias(String, Vec<String>, Type),
@@ -14,17 +16,19 @@ pub enum Decl {
     TypeSig(String, Type),
     FuncDef(String, Vec<String>, Expr),
 }
-
+#[derive(Debug)]
 pub struct MethodSig {
     pub name: String,
     pub ty: Type,
 }
 
+#[derive(Debug)]
 pub struct MethodImpl {
     pub name: String,
     pub body: Expr,
 }
 
+#[derive(Debug)]
 pub struct Constructor {
     pub name: String,
     pub fields: Vec<Type>,

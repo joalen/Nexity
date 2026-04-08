@@ -26,3 +26,15 @@ fn test_function_with_if() {
     assert!(ir.contains("br i1"));
     assert!(ir.contains("phi i64"));
 }
+
+#[test]
+fn test_function_call() {
+    let ir = compile_program("
+        double x = x + x
+        main = double 21
+    ").unwrap();
+    println!("{}", ir);
+    assert!(ir.contains("define i64 @double"));
+    assert!(ir.contains("define i64 @main"));
+    assert!(ir.contains("call i64 @double"));
+}

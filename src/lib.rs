@@ -10,6 +10,8 @@ use ast::types::TypeInference;
 use ast::ast::Decl;
 use llvmgen::Codegen;
 
+use crate::lexer::Token;
+
 pub fn compile(source: &str) -> Result<String, String> {
     // first, we lex + parse
     let lexer = Lexer::new(source);
@@ -35,7 +37,11 @@ pub fn compile_program(source: &str) -> Result<String, String> {
     let mut parser = Parser::new(lexer);
 
     let mut decls = Vec::new();
-    while parser.current_token != lexer::Token::Eof {
+    while parser.current_token != Token::Eof {
+        if parser.current_token == Token::VirtualSemi {
+            parser.next_token();
+            continue;
+        }
         match parser.parse_decl() {
             Some(decl) => decls.push(decl),
             None => break,

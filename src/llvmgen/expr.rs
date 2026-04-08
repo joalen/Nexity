@@ -1,8 +1,8 @@
 use super::Codegen;
-use inkwell::values::BasicValueEnum;
+use crate::ast::ast::{BinaryOp, Expr};
 use inkwell::IntPredicate;
 use inkwell::values::AnyValue;
-use crate::ast::ast::{BinaryOp, Expr};
+use inkwell::values::BasicValueEnum;
 
 impl<'ctx> Codegen<'ctx> {
     pub fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>, String> {
@@ -194,20 +194,34 @@ impl<'ctx> Codegen<'ctx> {
         func_expr: &Expr,
         arg_expr: &Expr,
     ) -> Result<BasicValueEnum<'ctx>, String> {
-        let func_val = self.compile_expr(func_expr)?.into_pointer_value();
         let arg_val = self.compile_expr(arg_expr)?;
         let i64_t = self.context.i64_type();
-        let fn_type = i64_t.fn_type(&[i64_t.into()], false);
 
+        if let Expr::Identifier(name) = func_expr {
+            if let Some(function) = self.module.get_function(name) {
+                let call = self
+                    .builder
+                    .build_call(function, &[arg_val.into()], "call")
+                    .unwrap();
+                let val = call
+                    .as_any_value_enum()
+                    .try_into()
+                    .map_err(|_| "call did not return a basic value".to_string())?;
+                return Ok(val);
+            }
+        }
+
+        // fallback: indirect call through pointer (lambdas)
+        let func_val = self.compile_expr(func_expr)?.into_pointer_value();
+        let fn_type = i64_t.fn_type(&[i64_t.into()], false);
         let call = self
             .builder
             .build_indirect_call(fn_type, func_val, &[arg_val.into()], "call")
             .unwrap();
-
-        let val = call.as_any_value_enum()
+        let val = call
+            .as_any_value_enum()
             .try_into()
             .map_err(|_| "call did not return a basic value".to_string())?;
         Ok(val)
-
     }
 }

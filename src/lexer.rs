@@ -1,5 +1,4 @@
 use std::str::Chars;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ReservedToken {
@@ -21,226 +20,163 @@ pub enum Token {
     DoubleEquals,
     DoubleColon,
     DoubleArrow,
+    VirtualSemi,
 }
 
 pub struct Lexer<'a> {
-    input: Arc<Mutex<Chars<'a>>>,
-    current_char: Arc<Mutex<Option<char>>>,
+    chars: Chars<'a>,
+    current: Option<char>,
+    col: usize,
+    layout_col: Option<usize>,
+    pending_virtual_semi: bool,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = Lexer {
-            input: Arc::new(Mutex::new(input.chars())),
-            current_char: Arc::new(Mutex::new(None)),
+            chars: input.chars(),
+            current: None,
+            col: 0,
+            layout_col: None,
+            pending_virtual_semi: false,
         };
-        lexer.next_char();
+        lexer.advance();
         lexer
     }
 
-    fn next_char(&mut self) {
-        let mut input = self.input.lock().unwrap();
-        let mut current_char = self.current_char.lock().unwrap();
-        *current_char = input.next();
+    fn advance(&mut self) {
+        self.current = self.chars.next();
+        match self.current {
+            Some('\n') => { self.col = 0; }
+            Some(_)    => { self.col += 1; }
+            None       => {}
+        }
     }
 
-    fn skip_whitespace(&mut self) {
-        loop {
-            let c = {
-                let current_char = self.current_char.lock().unwrap();
-                *current_char
-            };
+    fn peek(&self) -> Option<char> {
+        self.current
+    }
 
-            if let Some(c) = c {
-                if c.is_whitespace() {
-                    self.next_char();
-                } else {
-                    break;
+    // returns true if crossed a newline back to col 1 (new top-level decl)
+    fn skip_whitespace(&mut self) -> bool {
+        let mut crossed_newline = false;
+        loop {
+            match self.current {
+                Some(c) if c.is_whitespace() => {
+                    if c == '\n' { crossed_newline = true; }
+                    self.advance();
                 }
-            } else {
-                break;
+                _ => break,
             }
+        }
+        if let Some(layout) = self.layout_col {
+            crossed_newline && self.col == layout
+        } else {
+            false
         }
     }
 
     pub fn get_token(&mut self) -> Token {
-        self.skip_whitespace();
+        if self.pending_virtual_semi {
+            self.pending_virtual_semi = false;
+            return Token::VirtualSemi;
+        }
 
-        let current_char = {
-            let current_char = self.current_char.lock().unwrap();
-            *current_char
-        };
+        let emit_semi = self.skip_whitespace();
 
-        match current_char {
-            Some(c) if c.is_alphabetic() => self.lex_identifier(),
-            Some(c) if c.is_digit(10) => self.lex_number(),
-            Some('.') => {
-                self.next_char();
-                Token::Char('.')
+        if self.layout_col.is_none() {
+            if self.current.is_some() {
+                self.layout_col = Some(self.col);
             }
-            
-            // comments
+        }
+
+        if emit_semi {
+            return Token::VirtualSemi;
+        }
+
+        match self.current {
+            Some(c) if c.is_alphabetic() => self.lex_identifier(),
+            Some(c) if c.is_ascii_digit() => self.lex_number(),
+
+            Some('.') => { self.advance(); Token::Char('.') }
+
             Some('#') => {
-                while let Some(ch) = {
-                    let current_char = self.current_char.lock().unwrap();
-                    *current_char
-                } {
-                    if ch == '\n' || ch == '\r' { break; }
-                    self.next_char();
+                while matches!(self.current, Some(c) if c != '\n' && c != '\r') {
+                    self.advance();
                 }
-                self.next_char();
+                self.advance();
                 self.get_token()
             }
 
-            // pipe symbol
-            Some('|') => {
-                self.next_char();
-                Token::Pipe
-            }
+            Some('|') => { self.advance(); Token::Pipe }
 
-            // arrow notation
             Some('-') => {
-                self.next_char();
-                if let Some('>') = {
-                    let current_char = self.current_char.lock().unwrap();
-                    *current_char
-                } {
-                    self.next_char();
-                    Token::Arrow
-                } else {
-                    Token::Char('-')
-                }
+                self.advance();
+                if self.current == Some('>') { self.advance(); Token::Arrow }
+                else { Token::Char('-') }
             }
 
-            // the double equals 
             Some('=') => {
-                self.next_char();
-                if let Some('=') = {
-                    let current_char = self.current_char.lock().unwrap();
-                    *current_char
-                } {
-                    self.next_char();
-                    Token::DoubleEquals
-                } else if let Some('>') = {
-                    let current_char = self.current_char.lock().unwrap();
-                    *current_char
-                }{
-                    self.next_char();
-                    Token::DoubleArrow
-                } else {
-                    Token::Equals
+                self.advance();
+                match self.current {
+                    Some('=') => { self.advance(); Token::DoubleEquals }
+                    Some('>') => { self.advance(); Token::DoubleArrow }
+                    _         => Token::Equals,
                 }
             }
 
-            // comparisons
-            Some('<') => {
-                self.next_char();
-                Token::Char('<')
-            }
+            Some('<') => { self.advance(); Token::Char('<') }
+            Some('>') => { self.advance(); Token::Char('>') }
 
-            Some('>') => {
-                self.next_char();
-                Token::Char('>')
-            }
-
-            // the double colon
             Some(':') => {
-                self.next_char();
-
-                if let Some(':') = {
-                    let current_char = self.current_char.lock().unwrap();
-                    *current_char
-                } {
-                    self.next_char();
-                    Token::DoubleColon
-                } else {
-                    Token::Char(':')
-                }
+                self.advance();
+                if self.current == Some(':') { self.advance(); Token::DoubleColon }
+                else { Token::Char(':') }
             }
 
-            Some(c) => {
-                self.next_char();
-                Token::Char(c)
-            }
-            
-            None => Token::Eof, // mark end of file
+            Some(c) => { self.advance(); Token::Char(c) }
+            None    => Token::Eof,
         }
     }
 
     fn lex_identifier(&mut self) -> Token {
-        let mut identifier = String::new();
-
-        if let Some(c) = {
-            let current_char = self.current_char.lock().unwrap();
-            *current_char
-        } {
-            identifier.push(c);
-            self.next_char();
+        let mut s = String::new();
+        while let Some(c) = self.current {
+            if c.is_alphanumeric() || c == '_' { s.push(c); self.advance(); }
+            else { break; }
         }
-
-        loop {
-            let c = {
-                let current_char = self.current_char.lock().unwrap();
-                *current_char
-            };
-
-            if let Some(c) = c {
-                if c.is_alphanumeric() {
-                    identifier.push(c);
-                    self.next_char();
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        match identifier.as_str() {
-            "case" => Token::ReserveTok(ReservedToken::Case), 
-            "of"   => Token::ReserveTok(ReservedToken::Of),
-            "if"   => Token::ReserveTok(ReservedToken::If),
-            "then" => Token::ReserveTok(ReservedToken::Then),
-            "else" => Token::ReserveTok(ReservedToken::Else),
-            "Classm" => Token::ReserveTok(ReservedToken::Classm),
-            "Data" => Token::ReserveTok(ReservedToken::Data),
+        match s.as_str() {
+            "case"     => Token::ReserveTok(ReservedToken::Case),
+            "of"       => Token::ReserveTok(ReservedToken::Of),
+            "if"       => Token::ReserveTok(ReservedToken::If),
+            "then"     => Token::ReserveTok(ReservedToken::Then),
+            "else"     => Token::ReserveTok(ReservedToken::Else),
+            "Classm"   => Token::ReserveTok(ReservedToken::Classm),
+            "Data"     => Token::ReserveTok(ReservedToken::Data),
             "Deriving" => Token::ReserveTok(ReservedToken::Deriving),
-            "Do" => Token::ReserveTok(ReservedToken::Do),
-            "let" => Token::ReserveTok(ReservedToken::Let),
-            "in" => Token::ReserveTok(ReservedToken::In),
-            "True" => Token::ReserveTok(ReservedToken::True),
-            "False" => Token::ReserveTok(ReservedToken::False),
-            "type" => Token::ReserveTok(ReservedToken::Type),
-            "forall" => Token::ReserveTok(ReservedToken::Forall),
-            "exists" => Token::ReserveTok(ReservedToken::Exists),
-            "where" => Token::ReserveTok(ReservedToken::Where),
-            _ => Token::Identifier(identifier),
+            "Do"       => Token::ReserveTok(ReservedToken::Do),
+            "let"      => Token::ReserveTok(ReservedToken::Let),
+            "in"       => Token::ReserveTok(ReservedToken::In),
+            "True"     => Token::ReserveTok(ReservedToken::True),
+            "False"    => Token::ReserveTok(ReservedToken::False),
+            "type"     => Token::ReserveTok(ReservedToken::Type),
+            "forall"   => Token::ReserveTok(ReservedToken::Forall),
+            "exists"   => Token::ReserveTok(ReservedToken::Exists),
+            "where"    => Token::ReserveTok(ReservedToken::Where),
+            _          => Token::Identifier(s),
         }
     }
 
     fn lex_number(&mut self) -> Token {
-        let mut num_str = String::new();
-        let mut has_decimal = false;
-
-        loop {
-            let c = {
-                let current_char = self.current_char.lock().unwrap();
-                *current_char
-            };
-
-            if let Some(c) = c {
-                if c == '.' { has_decimal = true; }
-                if c.is_digit(10) || c == '.' {
-                    num_str.push(c);
-                    self.next_char();
-                } else { break; }
+        let mut s = String::new();
+        let mut has_dot = false;
+        while let Some(c) = self.current {
+            if c.is_ascii_digit() || c == '.' {
+                if c == '.' { has_dot = true; }
+                s.push(c); self.advance();
             } else { break; }
         }
-
-        if has_decimal {
-            Token::FloatLiteral(num_str.parse::<f64>().unwrap_or(0.0))
-        } else {
-            Token::IntLiteral(num_str.parse::<i64>().unwrap_or(0))
-        }
+        if has_dot { Token::FloatLiteral(s.parse().unwrap_or(0.0)) }
+        else       { Token::IntLiteral(s.parse().unwrap_or(0)) }
     }
 }
