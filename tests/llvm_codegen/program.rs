@@ -47,3 +47,12 @@ fn test_multi_arg_function() {
     assert!(ir.contains("define i64 @add(i64 %x, i64 %y)"));
     assert!(ir.contains("call i64 @add(i64 3, i64 4)"));
 }
+
+#[test]
+fn test_recursive_function() {
+    let ir = compile_program("
+        fact n = if n == 0 then 1 else n * fact (n - 1)
+    ").unwrap();
+    assert!(ir.contains("define i64 @fact"));
+    assert!(ir.contains("call i64 @fact"));
+}

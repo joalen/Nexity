@@ -162,6 +162,7 @@ impl Expr {
             }
 
             Expr::BinaryOp(lhs, op, rhs) => {
+                println!("BINOP: {:?}", op);
                 let left = lhs.evaluate(env)?;
                 let right = rhs.evaluate(env)?;
                 self.eval_binary_op(left, op, right)

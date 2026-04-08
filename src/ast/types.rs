@@ -263,7 +263,11 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
         (Type::Custom(name1), Type::Custom(name2)) if name1 == name2 => Ok(Substitution::new()),
 
         // can't unify
-        _ => Err(format!("Cannot unify types {:?} and {:?}", t1, t2)),
+        _ => {
+            let err = format!("Cannot unify types {:?} and {:?}", t1, t2);
+            println!("UNIFY FAIL: {:?} vs {:?}", t1, t2);  // add this
+            Err(err)
+        }
     }
 }
 
@@ -500,13 +504,12 @@ impl Expr
                 { 
                     unify(&left_ty, &right_ty, type_aliases)?;
                     
+                    println!("ARITH: left={:?} right={:?}", left_ty, right_ty);
+
                     let result_ty = match (&left_ty, &right_ty) {
-                        (Type::Float, Type::Float) => Type::Float,
-                        (Type::Int, Type::Int) => Type::Int,
-                        (Type::TypeVar(_), Type::Float) | (Type::Float, Type::TypeVar(_)) => Type::Float,
-                        (Type::TypeVar(_), Type::Int) | (Type::Int, Type::TypeVar(_)) => Type::Int,
-                        (Type::TypeVar(_), Type::TypeVar(_)) => Type::Float,
-                        _ => return Err("Arithmetic operations require numeric types".into())
+                        (Type::Float, _) | (_, Type::Float) => Type::Float,
+                        (Type::Int, _) | (_, Type::Int) => Type::Int,
+                        _ => left_ty.clone(),
                     };
                     
                     Ok((result_ty, left_constraints))
