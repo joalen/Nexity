@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::lexer::{Lexer, ReservedToken, Token};
 use crate::ast::ast::{BinaryOp, Constraint, Constructor, Decl, Expr, MethodImpl, MethodSig, Pattern, Type};
 
@@ -804,7 +806,7 @@ impl<'a> Parser<'a>
             if self.current_token == Token::Char('{') {
                 self.next_token();
                 while self.current_token != Token::Char('}') {
-                    let field_name = match &self.current_token {
+                    let _field_name = match &self.current_token {
                         Token::Identifier(n) => n.clone(),
                         _ => break,
                     };

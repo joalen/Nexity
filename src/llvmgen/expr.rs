@@ -1,8 +1,11 @@
+#![allow(dead_code)]
+
 use super::Codegen;
 use crate::ast::ast::{BinaryOp, Expr};
 use inkwell::IntPredicate;
 use inkwell::values::AnyValue;
 use inkwell::values::BasicValueEnum;
+use inkwell::values::BasicMetadataValueEnum;
 
 impl<'ctx> Codegen<'ctx> {
     pub fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>, String> {
@@ -201,11 +204,21 @@ impl<'ctx> Codegen<'ctx> {
         }
         args.reverse();
 
-        let compiled_args: Vec<_> = args.iter()
-        .map(|a| self.compile_expr(a).map(|v| v.into()))
+        let compiled_args: Vec<BasicMetadataValueEnum> = args.iter()
+        .map(|a| self.compile_expr(a).map(|v| BasicMetadataValueEnum::from(v)))
         .collect::<Result<_, _>>()?;
 
+        // builtin print
+        if let Expr::Identifier(name) = head {
+            if name == "print" {
+                let val = BasicValueEnum::try_from(compiled_args[0])
+                    .map_err(|_| "print: invalid argument type".to_string())?;
+                self.emit_printf(val)?;
+                return Ok(self.context.i64_type().const_int(0, false).into());
+            }
+        }
 
+        // direct named call
         if let Expr::Identifier(name) = head {
             if let Some(function) = self.module.get_function(name) {
                 let call = self.builder
@@ -248,5 +261,45 @@ impl<'ctx> Codegen<'ctx> {
             .try_into()
             .map_err(|_| "call did not return a basic value".to_string())?;
         Ok(val)
+    }
+
+    pub fn emit_printf(&mut self, val: BasicValueEnum<'ctx>) -> Result<(), String> {
+        let i32_t = self.context.i32_type();
+        let ptr_t = self.context.ptr_type(inkwell::AddressSpace::default());
+    
+        let printf = self.module.get_function("printf").unwrap_or_else(|| {
+            let printf_ty = i32_t.fn_type(&[ptr_t.into()], true);
+            self.module.add_function("printf", printf_ty, None)
+        });
+    
+        let (fmt_str, print_val) = match val {
+            BasicValueEnum::IntValue(v) => {
+                // check if it's bool (i1) vs int (i64)
+                if v.get_type().get_bit_width() == 1 {
+                    let fmt = self.builder.build_global_string_ptr("%s\n", "fmt").unwrap();
+                    // convert bool to "true"/"false" string
+                    let true_str = self.builder.build_global_string_ptr("true", "true_str").unwrap();
+                    let false_str = self.builder.build_global_string_ptr("false", "false_str").unwrap();
+                    let selected = self.builder.build_select(v, true_str.as_pointer_value(), false_str.as_pointer_value(), "bool_str").unwrap();
+                    (fmt.as_pointer_value().into(), selected.into())
+                } else {
+                    let fmt = self.builder.build_global_string_ptr("%lld\n", "fmt").unwrap();
+                    (fmt.as_pointer_value().into(), val)
+                }
+            }
+            BasicValueEnum::FloatValue(_) => {
+                let fmt = self.builder.build_global_string_ptr("%f\n", "fmt").unwrap();
+                (fmt.as_pointer_value().into(), val)
+            }
+            _ => return Err("print: unsupported type".into()),
+        };
+    
+        self.builder.build_call(
+            printf,
+            &[fmt_str, print_val.into()],
+            "printf_call"
+        ).unwrap();
+    
+        Ok(())
     }
 }

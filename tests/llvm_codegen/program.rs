@@ -56,3 +56,21 @@ fn test_recursive_function() {
     assert!(ir.contains("define i64 @fact"));
     assert!(ir.contains("call i64 @fact"));
 }
+
+#[test]
+fn test_print_int() {
+    let ir = compile_program("
+        main = print 42
+    ").unwrap();
+    assert!(ir.contains("printf"));
+    assert!(ir.contains("%lld"));
+}
+
+#[test]
+fn test_print_float() {
+    let ir = compile_program("
+        main = print 3.14
+    ").unwrap();
+    assert!(ir.contains("printf"));
+    assert!(ir.contains("%f"));
+}

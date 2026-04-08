@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::ast::ast::{BinaryOp, Constraint, Decl, Kind, Pattern};
 use crate::ast::ast::{Expr, Type};
 use std::collections::HashMap;
@@ -211,7 +213,7 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
         }
 
         // Existential unpacking: ∃a. T becomes a fresh type variable
-        (Type::Existential(vars, constraints, body), ty) | (ty, Type::Existential(vars, constraints, body)) => {
+        (Type::Existential(vars, _constraints, body), ty) | (ty, Type::Existential(vars, _constraints, body)) => {
             let mut subst = Substitution::new();
             let mut generator = TypeVarGenerator::new();
             for v in vars {
@@ -265,7 +267,6 @@ pub fn unify(t1: &Type, t2: &Type, aliases: &HashMap<String, (Vec<String>, Type)
         // can't unify
         _ => {
             let err = format!("Cannot unify types {:?} and {:?}", t1, t2);
-            println!("UNIFY FAIL: {:?} vs {:?}", t1, t2);  // add this
             Err(err)
         }
     }
@@ -293,9 +294,17 @@ impl TypeInference
         kind_env.insert("Bool".to_string(), Kind::Star);
         kind_env.insert("Char".to_string(), Kind::Star);
 
+        let mut env: TypeEnv = HashMap::new();
+
+        env.insert("print".to_string(), TypeScheme {
+            type_vars: vec!["a".to_string()],
+            constraints: vec![],
+            ty: Type::Function(Box::new(Type::TypeVar("a".to_string())), Box::new(Type::Int)),
+        });
+
         TypeInference 
         { 
-            env: HashMap::new(), 
+            env,
             type_var_gen: TypeVarGenerator::new(),
             class_env: ClassEnv {
                 classes: HashMap::new(),
@@ -503,9 +512,6 @@ impl Expr
                 | BinaryOp::Modulo => 
                 { 
                     unify(&left_ty, &right_ty, type_aliases)?;
-                    
-                    println!("ARITH: left={:?} right={:?}", left_ty, right_ty);
-
                     let result_ty = match (&left_ty, &right_ty) {
                         (Type::Float, _) | (_, Type::Float) => Type::Float,
                         (Type::Int, _) | (_, Type::Int) => Type::Int,
@@ -811,7 +817,7 @@ pub fn infer_pattern(pattern: &Pattern, type_var_gen: &mut TypeVarGenerator, adt
                                     bindings.push((var_name.clone(), field_ty));
                                 }
                                 _ => {
-                                    let (pat_ty, pat_bindings, pat_constraints) = infer_pattern(pat, type_var_gen, adt_env);
+                                    let (_pat_ty, pat_bindings, pat_constraints) = infer_pattern(pat, type_var_gen, adt_env);
                                     bindings.extend(pat_bindings);
                                     constraints.extend(pat_constraints);
                                     // Could unify pat_ty with field_ty here
