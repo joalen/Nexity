@@ -50,8 +50,14 @@ pub fn compile_program(source: &str) -> Result<String, String> {
             continue;
         }
         match parser.parse_decl() {
-            Some(decl) => decls.push(decl),
-            None => break,
+            Some(decl) => {
+                println!("DECL: {:?}", decl);
+                decls.push(decl);
+            }
+            None => {
+                println!("STOPPED AT: {:?}, prev decls: {}", parser.current_token, decls.len());
+                break;
+            }
         }
     }
 
@@ -98,8 +104,14 @@ pub fn compile_to_binary(source: &str, output_path: &str) -> Result<(), String> 
             continue;
         }
         match parser.parse_decl() {
-            Some(decl) => decls.push(decl),
-            None => break,
+            Some(decl) => { 
+                println!("DECL: {:?}", decl);
+                decls.push(decl);
+            }
+            None => { 
+                println!("PARSE STOPPED AT: {:?}", parser.current_token); 
+                break;
+            }
         }
     }
 
