@@ -31,6 +31,8 @@ pub struct Lexer<'a> {
     col: usize,
     layout_col: Option<usize>,
     pending_virtual_semi: bool,
+    pub indent_stack: Vec<usize>,
+    push_next_col: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -41,6 +43,8 @@ impl<'a> Lexer<'a> {
             col: 0,
             layout_col: None,
             pending_virtual_semi: false,
+            indent_stack: Vec::new(),
+            push_next_col: false,
         };
         lexer.advance();
         lexer
@@ -71,11 +75,13 @@ impl<'a> Lexer<'a> {
                 _ => break,
             }
         }
-        if let Some(layout) = self.layout_col {
-            crossed_newline && self.col == layout
-        } else {
-            false
+        if !crossed_newline { return false; }
+
+        while self.indent_stack.len() > 1 && self.col < *self.indent_stack.last().unwrap() {
+            self.indent_stack.pop();
         }
+
+        self.indent_stack.last().map_or(false, |&layout| self.col == layout)
     }
 
     pub fn get_token(&mut self) -> Token {
@@ -86,17 +92,23 @@ impl<'a> Lexer<'a> {
 
         let emit_semi = self.skip_whitespace();
 
-        if self.layout_col.is_none() {
-            if self.current.is_some() {
-                self.layout_col = Some(self.col);
+        if self.push_next_col && self.current.is_some() {
+            self.indent_stack.push(self.col);
+            self.push_next_col = false;
+        } else { 
+            if self.layout_col.is_none() {
+                if self.current.is_some() {
+                    self.layout_col = Some(self.col);
+                    self.indent_stack.push(self.col);
+                }
+            }
+
+            if emit_semi {
+                return Token::VirtualSemi;
             }
         }
 
-        if emit_semi {
-            return Token::VirtualSemi;
-        }
-
-        match self.current {
+        let tok = match self.current {
             Some(c) if c.is_alphabetic() => self.lex_identifier(),
             Some(c) if c.is_ascii_digit() => self.lex_number(),
 
@@ -138,6 +150,21 @@ impl<'a> Lexer<'a> {
 
             Some(c) => { self.advance(); Token::Char(c) }
             None    => Token::Eof,
+        };
+
+        if tok == Token::ReserveTok(ReservedToken::Where) {
+            self.skip_whitespace();
+            if self.current.is_some() {
+                self.indent_stack.push(self.col);
+            }
+        }
+
+        tok
+    }
+
+    pub fn pop_layout(&mut self) {
+        if self.indent_stack.len() > 1 {
+            self.indent_stack.pop();
         }
     }
 

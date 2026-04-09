@@ -390,9 +390,6 @@ impl TypeInference
                 
                 // If we have a signature, check it matches
                 if let Some(sig_ty) = self.signatures.get(name).cloned() {
-                    println!("Signature: {:?}", sig_ty);
-                    println!("Inferred: {:?}", inferred_ty);
-
                     match unify(&sig_ty, &inferred_ty, &self.type_aliases) {
                         Ok(subst) => {
                             let final_ty = apply_substitution(&sig_ty, &subst);

@@ -3,7 +3,6 @@ use nexity::compile_program;
 #[test]
 fn test_simple_function() {
     let ir = compile_program("f x = x + 1").unwrap();
-    println!("{}", ir);
     assert!(ir.contains("define i64 @f"));
 }
 
@@ -20,7 +19,6 @@ fn test_two_functions() {
 #[test]
 fn test_function_with_if() {
     let ir = compile_program("abs x = if x < 0 then 0 else x").unwrap();
-    println!("{}", ir);
     assert!(ir.contains("define i64 @abs"));
     assert!(ir.contains("icmp slt"));
     assert!(ir.contains("br i1"));
@@ -81,8 +79,16 @@ fn test_pattern_match_literal() {
         describe n = match n { 0 -> 1, 1 -> 2, _ -> 0 }
         main = print (describe 1)
     ").unwrap();
-    println!("{}", ir);
     assert!(ir.contains("define i64 @describe"));
     assert!(ir.contains("icmp eq"));
     assert!(ir.contains("phi"));
+}
+
+#[test]
+fn test_where_clause() {
+    let ir = compile_program("
+        f x = x + y where y = 10
+        main = print (f 5)
+    ").unwrap();
+    assert!(ir.contains("define i64 @f"));
 }
